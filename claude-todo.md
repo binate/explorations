@@ -2866,22 +2866,27 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt leaves an empty line where it drops an empty annotation block — 🟡 IN PROGRESS (claimed 2026-11-16, temp-4; user: "yes") 🟢 LOW (noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header"; split out 2026-11-16)
+### bnfmt moves a comment between an import's annotation block and its `import` keyword — 🔴 OPEN 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
 
-bnfmt drops an empty annotation block `#[]` on purpose (it carries no meaning, spec pkg.annotation), but leaves an
-empty line in its place, so a doc comment above it no longer touches its declaration: `// doc` / `#[]` / `func f()
-{}` prints `// doc`, an empty line, then `func f() {}` (checked 2026-11-16 on binate `0dbf1de7d`;
-conformance/spec/16-packages/071_annotation_degenerate.bn holds such a block).  A comment inside it (`#[ /* c */ ]`)
-goes on a line of its own there, with no empty line.
+A comment after an import's annotation block on the `import` line goes after the keyword: `#[x] /* c */ import "b"`
+prints `#[x]` / `import /* c */ "b"`, and so does an empty block (`#[] /* c */ import "b"` prints `import /* c */
+"b"`) and a block after a `;` (`import "a"; #[x] /* c */ import "b"`); a declaration's goes on a line of its own
+above its keyword (`#[x]` / `/* c */` / `func f() {}`).  And a blank line among the comments between an import's
+block and its keyword is dropped: `#[x]` / `// e` / an empty line / `// f` / `import "g"` prints `// e` / `// f`
+together, with an empty block too, where a declaration keeps it and an import with no block keeps it (checked
+2026-11-16 on binate `576087170`).  Root cause not traced; the import printer places these comments
+(print_imports.bn: takeImportEntry classifies an import's comments, importAnnotations renders its block).  Fix:
+place them as a declaration's are, on lines of their own above the keyword with the source's blank lines kept.  No
+test yet.
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
 `pkg/binate/format/print_listcomments.bn`).  Still placed by no node, so printed after the statement with
-the list joined: a comment after a list's last element, before its close (`h(x,` / `y, // c` / `)`); one
-between the elements of a statement's expression list (`return a, // c` / `b`, `x, // c` / `y := …`); and
-one among an annotation's arguments (`#[build(os == "linux", // c` / `arch == "x64")]` prints `// c` after the
-`]`); a typed builtin's operands and a type declaration's, an interface's and an impl's lists print theirs
+the list joined: a comment after a list's last element, before its close (`h(x,` / `y, // c` / `)`), and one
+between the elements of a statement's expression list (`return a, // c` / `b`, `x, // c` / `y := …`).  A
+typed builtin's operands, an annotation's arguments (binate `0dbf1de7d`) and a type declaration's, an
+interface's and an impl's lists print theirs
 (checked 2026-11-15 on binate `b8a91ad06`).  Also after the opener of a function-type list, whose opener
 position the AST does not
 record, and in an empty list (`f(/* c */ )`, `T{/* c */ }`); a signature's lists print theirs (binate

@@ -1,3 +1,20 @@
+### bnfmt left an empty line where it dropped an empty annotation block — DONE (binate `576087170`, 2026-11-16, temp-4; user: "yes", landed on "yes"; LOW; noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header")
+
+bnfmt drops an empty annotation block (`#[]`), but a declaration with one started at its keyword (declStartPos), so
+the block's lines read as blank ones: `// doc` / `#[]` / `func f() {}` printed an empty line under the doc comment,
+and a comment after the block's `#` became the trailing comment of what preceded it on its line (`func g() {}; #[]
+/* e */ func h() {}` printed `func g() {} /* e */`; the same after an import, and in the package clause's block).  A
+declaration now starts at its block's `#` whenever it has one, as the package clause and an import already did, and
+for an empty block the comments from the `#` to the keyword go on lines of their own, keeping the source's blank
+lines among them and before the keyword, the block's own lines not counted as blank (writeCommentLinesBefore,
+emptyBlockGap; a review found the blank lines lost in a first version).  The tree changes only in conformance's
+071_annotation_degenerate.  Over 600 generated files every doc comment keeps the source's blank line or its absence
+(main's bnfmt got 101 of 1,135 wrong), no comment moves that main keeps in place, and nothing is newly rejected or
+not idempotent.  A `// LONG-LINE ALLOWED` line on which a later declaration has an empty block and then a comment
+now prints one declaration per line, as with a non-empty block.  Test: TestEmptyAnnotationBlockHoldsItsLines.  The
+comments between an import's block and its `import` keyword, which move with an empty block or not, are a new entry:
+"bnfmt moves a comment between an import's annotation block and its `import` keyword".
+
 ### VM: a native variadic called through a function value got its `...*any` elements untranslated -- SIGSEGV — DONE (binate `73cb63433`, test `755971571`, 2026-11-16, work-1; MAJOR; user: "yes, fix the function-value crash next")
 
 On the VM, `var p *func(...*any) = testing.Println; p(x, y)` dies with SIGSEGV (exit 139) before printing; compiled
