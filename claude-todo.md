@@ -520,7 +520,7 @@ one generic in an alias's target count as one" below: tried first, it dropped D[
 that entry's repro, two misses in one target being one there.  Test: each repro above as a unit test pinning each miss
 once.
 
-### Two misses of one generic in an alias's target count as one, and an instance's is dropped — 🔴 OPEN (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
+### Two misses of one generic in an alias's target count as one, and an instance's is dropped — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
 
 `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, with `@T` a Tag[[8]uint8] alone, `type Pair[A any, B any]
 struct { a A; b B }`, `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]`, `type D[X any] struct { k KP[int16, X] }`
