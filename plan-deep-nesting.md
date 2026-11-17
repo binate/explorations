@@ -447,8 +447,17 @@ recursive, so far more than 75).
   of named managed-slices compiles and runs (LLVM 9 s, native aa64 35 s, VM 6.5 s); a 20,000 chain ~180 s, the
   checker's.  Review: no defect; stale comments fixed; irbuild's pending helper lists and codegen's funcRetTypes found
   quadratic (added to the LOW "Checking is quadratic in a package's number of declarations" entry).
-  Next: the VM's two cross-mode walks (collectIfaceVtOffsets, holdsIfaceValue: peel with types.StripWrappers), then
-  lint.
+- Stage VM DONE: binate `6b4c70da4` (landed 2026-11-16; user: "yes, go ahead") -- collectIfaceVtOffsets and
+  holdsIfaceValue peel alias / readonly / named wrappers with types.StripWrappers, not a call per link (a 100,000-link
+  chain crashed the VM's test binary); an array element's wrappers stripped once.  Review: no defect; found a MAJOR
+  pre-existing VM crash (argIsSliceOfRawIface peels one named level: a two-level named raw `*any` slice spread into a
+  native variadic -- claude-todo MAJOR, conformance 1753 xfail on the VM modes, binate `d55e5604f`) and interp's
+  marshalableIn (RunFuncTyped's parameter / result check) recursing into a managed-slice's element, with its path
+  lists copied per level.
+- Lint: nothing to convert -- its type walks are syntactic (bounded by the parser's limits) or go through types'
+  loops; a tree-built bnlint passes the 20,000 probes (named ring and chain, struct rings, named chain); a named chain's
+  309-383 s are the checker's (LOW entries).
+  Next: interp's marshalableIn on a work list with a visited set.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
