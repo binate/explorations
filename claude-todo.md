@@ -507,7 +507,7 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### A constraint miss's note names its probe's instances with no view root, adding two false errors — 🔴 OPEN (minor: misleading diagnostics; found 2026-11-14, temp-5, review of the constraint-judgment view-root fix; pre-existing since binate `ed737493f`)
+### A constraint miss's note names its probe's instances with no view root, adding two false errors — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: misleading diagnostics; found 2026-11-14, temp-5, review of the constraint-judgment view-root fix; pre-existing since binate `ed737493f`)
 
 When a type argument misses a constraint because the impl that would serve it is private to another package, the
 note's probe (`constraintImplNote` / `hiddenImplPkg`, check/impl_private.bn) resolves that impl for the argument
