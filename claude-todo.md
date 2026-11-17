@@ -542,6 +542,20 @@ find where a derivation's report in an alias target loses the instance naming (i
 pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
 derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
 
+### Two misses of one generic in an alias's target count as one, and an instance's is dropped — 🔴 OPEN (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
+
+`type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, with `@T` a Tag[[8]uint8] alone, `type Pair[A any, B any]
+struct { a A; b B }`, `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]`, `type D[X any] struct { k KP[int16, X] }`
+and `var d D[int32]`: D's own check reports K[@T, int16]'s miss of Tag[[2]uint8] at the field, and D[int32]'s miss
+of Tag[[4]uint8] (K[@T, int32]) is dropped. Writing `Pair[K[@T, int16], K[@T, X]]` for the field reports both, at
+their own columns. A miss is known by its generic, its type parameter and its position (repeatsDeclarationMiss,
+foldInstanceMiss, InstanceState.DeclMissSites), and every instantiation in a generic alias's target is reported at
+the alias's use (attributedPos), so two instantiations of one generic in a target are one miss there. The program is
+rejected either way.
+
+Fix: give a miss the position its instantiation is written at in the target (the chain of them, for nested aliases)
+beside the use's, and compare it in those three. Test: the repro as a unit test pinning both misses.
+
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
