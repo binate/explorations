@@ -457,7 +457,17 @@ recursive, so far more than 75).
 - Lint: nothing to convert -- its type walks are syntactic (bounded by the parser's limits) or go through types'
   loops; a tree-built bnlint passes the 20,000 probes (named ring and chain, struct rings, named chain); a named chain's
   309-383 s are the checker's (LOW entries).
-  Next: interp's marshalableIn on a work list with a visited set.
+- VM follow-ups found by the VM stage's reviews (landed 2026-11-16): binate `19696c824` (argIsSliceOfRawIface peels every
+  wrapper; conformance 1753) and `73cb63433` (every cross-mode dispatcher translates a variadic slice's interface
+  values, the copy on vm.Stack only with room for the statement's remaining growth, else on the heap -- no fault, no
+  leak; conformance 1754).
+- Stage interp DONE: binate `051b5f311` (landed 2026-11-17; user: "wait 8 minutes, then go ahead") -- RunFuncTyped's
+  marshalableType visits the (type, allowIface) pairs a type reaches from a stack, each once (a 100,000-struct ring
+  through `@[]` crashed it; shared parts were checked once per path, 2^63 times for a 64-struct chain); 29 s for
+  interp's tests on the arm32 Linux lane, deep ones included.
+  Step 1 (iterative semantic-type walks) is complete through every stage.  Open: the LLVM deep-aggregate question (an
+  aggregate nested past a threshold made bulk, for the 81 s 1024-level array build; proposed, not decided) and step 3
+  (a type-depth backstop), not decided.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
