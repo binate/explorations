@@ -2895,10 +2895,12 @@ line comment there goes below the block; a comment after a `]` on a later line t
 the block; and for an import, any comment after the `]` goes below it (`#[build] // c` / `import "pkg/x"`; the import
 printer, printImportEntry, prints the block without comments).  Each output is valid and idempotent, but the comments
 move.  The block's `[` and `]` and each entry's `(` and `)` are in the file's bracket pairs (File.Brackets), found
-from the `#`, so no new AST position is needed.  Decided 2026-11-16 (user: "Like a call's args (Recommended)"):
-bnfmt prints a block as it prints a call's arguments -- a block the source wrapped stays wrapped (fill style), and one
-past 100 columns wraps -- with its comments where a call's go; today it joins every block onto one line, with no
-width limit (no block in the tree changes: all 155 are on one line, the longest 94 columns, none with a comment).
+from the `#`; a dotted name's segments need their positions recorded.  Decided 2026-11-16 (user: "Like a call's
+args (Recommended)", then, after a correction to that option's text, "Exactly as a call (Recommended)"): bnfmt prints
+a block exactly as it prints a call's arguments -- re-filled onto one line when it fits, a break kept only after a
+`[` that ends its line or forced by a line comment, wrapped past 100 columns -- with its comments where a call's go;
+today it joins every block onto one line, with no width limit (no block in the tree changes: all 155 are on one
+line, the longest 94 columns, none with a comment).
 Every other comment inside a declaration's header prints in place (a function's, a var's, a const's, a type
 declaration's, an interface declaration's, an impl's and the package clause's, checked 2026-11-15 on binate
 `dd25dd2c0`; a struct field's since `f794ed132`).  Related: an empty annotation block `#[]`, which bnfmt drops on
