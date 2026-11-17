@@ -199,7 +199,13 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   retf / enter immediates (decision above).  Left in claude-todo.md: bnld takes none of the new GOT relocations;
   an absolute symbol before `@GOTPCREL`.
 
-Next: 1i, the VEX-encoded integer instructions (BMI1 / BMI2: andn, bextr, blsi, blsmsk, blsr, bzhi, mulx, pdep,
-pext, rorx, sarx, shlx, shrx) and ADX, MOVBE, CRC32, with the VEX prefix encoder stage 4 builds on.  x64.bni is
-at 952 of its 1000-line cap: 1i's and 1j's encoders go into sub-packages of their own (as asm/x64/sse, strop,
-ctrl).
+- 1i — landed binate `131a40a4e` (2026-11-16): asm/x64/vex (the VEX prefix, C5 where it holds the fields, else
+  C4, as clang; AMD's XOP prefix 8F) and asm/x64/gpext (BMI1 / BMI2, TBM with bextr's imm32, ADX, MOVBE, CRC32),
+  their parser (parse/x64_gpext.bn) and x64.EmitRexRM.  With it, the decisions above: symbols in shift counts and
+  bit offsets; xacquire / xrelease as GNU as but an xchg memory-only and no moffs mov; prefixes alone after lock /
+  rep / a hint an error (1e's `lock fs` had been F0 64).  APX's EVEX forms clang picks (movbe between registers,
+  adcx / adox with three operands) are stage 6's.  Left in claude-todo.md (the x86-64 coverage entry): `[rip]` /
+  `[rip ± n]` with no symbol; `@PLT` / `@GOT` in a memory operand.
+
+Next: 1j, the system instructions (above).  x64.bni is at 964 of its 1000-line cap: 1j's encoders go into a
+sub-package of their own (as asm/x64/sse, strop, ctrl, gpext).
