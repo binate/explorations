@@ -26,7 +26,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   alias map.  Tests: a conformance test of both shapes (a forwarder's exposed package, an import under another name)
   and an e2e/repl.sh session.
 
-### A method expression read as a value with no function-value slot (`present(P.Get)`, `present(Box[int].Get)`) is an internal error in IR-gen — 🔴 OPEN, MAJOR (an internal error on a valid program; found 2026-11-17, work-6, review of the method-expressions-from-records change; pre-existing: on main at binate `c526c47b0`)
+### A method expression read as a value with no function-value slot (`present(P.Get)`, `present(Box[int].Get)`) is an internal error in IR-gen — 🟡 IN PROGRESS (claimed 2026-11-17, work-6; user chose "Fold it in" to the method-expressions-from-records commit), MAJOR (an internal error on a valid program; found 2026-11-17, work-6, review of the method-expressions-from-records change; pre-existing: on main at binate `c526c47b0`)
 
 - **Symptom:** with `type P struct { x int }` and `func (p P) Get() int { return p.x }`,
   `testing.Println(present(P.Get))` panics "internal error: unresolved selector in IR-gen: P.Get (compiler bug)" in
