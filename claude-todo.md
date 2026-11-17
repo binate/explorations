@@ -19,7 +19,7 @@ missed the same way.  Fix: peel the slice and its element with types.StripWrappe
 test.  Test: conformance 1753_variadic_spread_named_raw_any_slice (an alias, one, two and three named levels),
 `.xfail` on builder-comp-int, builder-comp-int-int and builder-comp-comp-int.
 
-### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix; pre-existing: on main at binate `017f68dde`)
+### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — 🟡 IN PROGRESS (claimed 2026-11-16, work-6; user chose "REPL fix next": the REPL records those packages under their full path), MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix; pre-existing: on main at binate `017f68dde`)
 
 - **Symptom:** a session rooted at a file importing pkg/vfwd (its `.bni` is `expose "pkg/vlib"`; pkg/vlib declares
   `func Add(a int, b int) int`) takes `type P struct { x int }`, `func (p P) Add(a int, b int) int { return p.x + a
