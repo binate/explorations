@@ -529,5 +529,9 @@ recursive, so far more than 75).
   some helpers (`@[]Strings`, `type Strings @[]String; type String @[]char`: `ms_ms_ms_uint8` -> `ms_<Strings>`; a
   recursive chain of links names its last link); measure the corpus programs it changes before landing (user: "Local
   naming rule (Recommended)").
-- Open: step 3 (a type-depth backstop) not
-  decided, revisit once step 1 is done.
+- Deep aggregates in LLVM (2026-11-17): an aggregate nested past a depth threshold is treated as bulk (copied through
+  memory, not an SSA value), so clang's -O0 IRTranslator no longer works through 1022-deep index paths (the 1024-level
+  array of managed-slices: 81 s); IR below the threshold unchanged (user: "Bulk past a depth (Recommended)").
+- Step 3 (2026-11-17): not needed -- step 1 is complete (every walk following a named link or crossing an indirect part
+  is iterative; recursion over by-value parts is bounded by type.named.depth's 1024 levels); closed (user: "Close it
+  (Recommended)").
