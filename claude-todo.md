@@ -7,6 +7,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM: a native variadic called through a function value gets its `...*any` elements untranslated -- SIGSEGV — 🔴 OPEN (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
+
+On the VM, `var p *func(...*any) = testing.Println; p(x, y)` dies with SIGSEGV (exit 139) before printing; compiled
+(LLVM) it prints, and `testing.Println(x, y)` works on the VM.  A call through a function value made from an extern
+goes through dispatchCompiledFuncValue (vm_exec_funcref.bn), which applies the call's ArgIfaceLayout.Slots (top-level
+and nested interface arguments) but not its SliceIfaceSlots, so the packed `*[]*any`'s elements reach the native
+callee with bytecode vtable words; only the extern dispatch (vm_extern.bn) calls substituteSliceIfaceArgs.
+dispatchCompiledIfaceMethod (vm_exec_iface.bn) has the same gap for an injected interface method with a `...*I`
+parameter (none in the stdlib).  Fix: translate the slice slots in both dispatchers -- substituteSliceIfaceArgs on the
+packed window (`&regs[Src2]` / `&callArgs[1]`), then the fault check dispatchExternBinding makes after it.  Test:
+conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail` on the three VM modes.
+
 ### VM: a named raw `*any` slice over another named type, spread into a native variadic, reaches the callee with its interface values untranslated -- SIGSEGV — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "Fix it now (Recommended)") (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the VM cross-mode walks change)
 
 On the VM, `type N1 *[]*any; type N2 N1; var n2 N2 = parts[:]; fmt.Println(n2...)` dies with SIGSEGV (exit 139);
@@ -2337,6 +2349,17 @@ Smaller follow-ups remain:
 See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
+
+### Cross-mode slices of interface values: latent gaps around substituteSliceIfaceArgs — 🔴 OPEN 🟢 LOW (none reachable from the stdlib; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
+
+Only a raw slice of raw interface values passed directly as an argument (a `...*any` / `...*I` pack or spread) has its
+elements translated for a native callee.  Not translated: a slice of MANAGED interface values (`*[]@I`;
+argIsSliceOfRawIface excludes it, though its elements are two words like a raw one's, so the same translation would
+serve -- no library variadic takes one); a `*[]*I` nested in a by-value aggregate argument, or returned from a VM
+function to native code (collectIfaceVtOffsets does not descend into slices).  The translation copies the backing, so
+a native callee that writes an element of a spread does not write the caller's (`func.variadic.spread` forwards the
+slice, no copy).  Unverified: the copy grows vm.SP at run time past the frame-entry reservation, checked against
+stackLimit, and the extern retbuf growth after it in the same statement is not checked against the red zone.
 
 ### A native package linked into a VM host but not injected misses its interface assertions on boxes the VM made — 🔴 OPEN (minor: a wrong run-time result, in a custom host only; found 2026-11-10, temp-5, review of the cross-mode interface-id fix; by reading, latent)
 
