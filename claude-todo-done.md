@@ -1,3 +1,16 @@
+### At the REPL, an `import` of a forwarder typed at the prompt registers none of the exposed packages' functions, constants or variables: the next use through it is an internal error — DONE (binate `389fc0956`, 2026-11-16, work-6; user: "wait 11 minutes, then go ahead"; MAJOR, a valid session failed with an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-4)
+
+pkg/fwd's `.bni` was `expose "pkg/glib"`; a session rooted at a file importing only pkg/builtins/testing took
+`import "pkg/fwd"`, and `fwd.HelperHandle()` panicked "internal error: IR-gen has no signature for the function
+pkg/glib.HelperHandle ...": the prompt-import path (pkg/binate/repl/mid_session_import.bn) registered the typed
+imports' signatures but not those of the packages they expose.  It now adds the typed imports' expose closure
+(appendExposeClosure) to that registration, as the startup path does.  Tests: three e2e/repl.sh sessions -- a
+forwarder imported at the prompt (a call, a function value, a constant, a variable read and written, a method, an
+interface value), the exposed package imported first (one variable through both names), and a two-level forwarder
+chain used before the package at its end is imported; the first and third fail without the fix.  The fix's review
+found the pre-existing MAJOR "a method expression on a prompt type alias named like a package IR-gen's alias map
+holds ..." (claude-todo.md).
+
 ### A constraint missed at a generic's declaration is reported with its dependent length as 0 — DONE (binate `2662d1207`, 2026-11-16, temp-5; user: "wait 7 minutes, then go ahead")
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
