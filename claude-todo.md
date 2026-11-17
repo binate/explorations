@@ -497,22 +497,28 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### A generic alias's target error reached through a method signature is reported twice, or without its instance — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
+### A generic alias's target error reached through a method signature is reported twice — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
-pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v
-V }`, `type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is a Tag[[2]uint8].
-- Reported twice: main declares `type G[U any] struct { u U }`, `var g G[int32]`, `func (g *G[U]) m(d *D[U]) int
-  { return 0 }` and `type D[X any] struct { k lib.KT[int16]; x X }`.  The miss in D's field is reported once as
-  "type argument @T does not satisfy constraint Tag[[2]uint8] (in D[int32], instantiated at <g's position> via
-  G[int32])" and again, at the same position, with no context.  With `lib.K[@lib.T, int16]` written for the
-  field, or D[int32] named in a function body, it is reported once.
-- No instance: main declares the same G, `func (g *G[U]) m(k *lib.KT[U]) int { return 0 }`, and after it `var g2
-  G[int16]`: the miss is reported with no "(in G[int16], ...)" context, which `lib.K[@lib.T, U]` written in m's
-  signature gets.
-Since step 3 of done/plan-instance-impl-view.md, a miss through a private impl reaches the same paths.  Fix: unknown --
-find where a derivation's report in an alias target loses the instance naming (instanceNamingFor /
-pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
-derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
+pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`,
+`type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is a Tag[[2]uint8].  main declares `type G[U
+any] struct { u U }`, `var g G[int32]`, `func (g *G[U]) m(d *D[U]) int { return 0 }` and `type D[X any] struct { k
+lib.KT[int16]; x X }`.  The miss in D's field is reported once as "type argument @T does not satisfy constraint
+Tag[[2]uint8] (in D[int32], instantiated at <g's position> via G[int32])" and again, at the same position, with no
+context (D's own check).  With `lib.K[@lib.T, int16]` written for the field, or D[int32] named in a function body, it
+is reported once.  The entry's other half, a deferred check in an alias's target naming no instance, is done (binate
+`861970a23`).
+
+In one package the same shape repeats a miss too: with `type KP2[B any] = Pair[KT[int16], K[@T, B]]`, `type D[X any]
+struct { k KP2[X] }` and `var d D[int32]`, KT[int16]'s miss of Tag[[2]uint8] is reported at KP2's declaration and
+again at D's field "(in D[int32], ...)"; D's own check reports none, the instantiation having been judged first at
+KP2's declaration.
+
+Cause: an instantiation in an alias's target with concrete arguments is checked at the instance level (bindAliasTarget
+raises InstanceState.Concrete), so its miss is never matched against the declaration's own (supersedeNamedError and
+repeatsDeclarationMiss go by missDeclLevel).  Fix: judge it at the level of the alias's use -- after "Two misses of
+one generic in an alias's target count as one" below: tried first, it dropped D[int32]'s real miss of Tag[[4]uint8] in
+that entry's repro, two misses in one target being one there.  Test: each repro above as a unit test pinning each miss
+once.
 
 ### Two misses of one generic in an alias's target count as one, and an instance's is dropped — 🔴 OPEN (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
 

@@ -1,3 +1,27 @@
+### A deferred check in a generic alias's target names no instance — DONE (binate `861970a23`, 2026-11-16, temp-5; user: "wait 3 minutes, then go ahead")
+
+The "no instance" half of "A generic alias's target error reached through a method signature is reported twice, or
+without its instance" (the repeat is still open there).  pkg/lib's .bni declares `interface Tag[X any] { tag() int }`,
+`type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `type KT[U any] = K[@T, U]` and a `T` that is a
+Tag[[8]uint8]; main declares `type G[U any] struct { u U }`, `func (g *G[U]) m(k *lib.KT[U]) int { return 0 }` and
+`var g2 G[int16]`.  The miss of Tag[[2]uint8] was reported with no "(in G[int16], ...)" context, which `lib.K[@lib.T,
+U]` written in m's signature gets.  The check made in the alias's target is deferred, and it recorded the innermost
+naming entry, the target's own, whose declaration does not hold the use's position; replayed with that alone, the miss
+named no instance.
+
+Fix (binate `861970a23`): a deferred check records the naming an error reported at its position would get right then
+(recordedInstanceNaming, in newPendingCheck and deferFuncConstraintCheck).  A target whose arguments are abstract only
+through `Self` (an interface method writing `KS[Self, U]`) lost its context too; its naming entry is marked AtUse and
+passed over in the search (namingEntryFor), while a target whose arguments hold a type parameter or a dependent length
+still stops it.  A first version passed over every abstract target's entry, and D[int32]'s naming leaked into D's own
+miss through `KP2[X]`; a probe caught it.  A first fix also judged the target's instantiations at the use's level; a
+review found that it drops a real miss (now the entry "Two misses of one generic in an alias's target count as one,
+and an instance's is dropped"), and it was taken out.
+
+Tests (check_instance_naming_test.bn): TestAliasTargetMissInMethodSignatureNamesInstance,
+TestAliasTargetInstanceMissKeptAndNamed (D[int32]'s miss of Tag[[4]uint8] named, and KP2's declaration's own miss of
+Tag[[2]uint8] at its line) and TestAliasTargetWithSelfMissNamesInstance; each fails with its half of the fix reverted.
+
 ### bnfmt left an empty line where it dropped an empty annotation block — DONE (binate `576087170`, 2026-11-16, temp-4; user: "yes", landed on "yes"; LOW; noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header")
 
 bnfmt drops an empty annotation block (`#[]`), but a declaration with one started at its keyword (declStartPos), so
