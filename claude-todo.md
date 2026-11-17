@@ -453,6 +453,24 @@ struct { s S }`, `func f[X any](g *G2[X, int32]) int { return 0 }` and then `fun
 return 0 }`, the program is accepted; with n declared before f, or G2[X, int32] formed in f's body instead, it is
 rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at n's K.
 
+Wider, and the order settled from the spec (2026-11-17, temp-5): accepting is right in every order.
+gen.mono.instances names no instantiation whose type arguments hold a type parameter or `Self`, and gen.mono.check
+checks a generic's deferred constructs only for the instantiations named ("even ones no type argument could
+satisfy"); K[@T, U] is written in G2, where its constraint (a length of U's size) is deferred.  But the checker
+judges the constraints in an abstract instance's structure as it builds it (InstanceState.Concrete is 0 there, so a
+miss is taken for a declaration's), wherever the instance is formed: with `type H[V any, W any] struct { k *K[@T, W];
+v V }`, `func f[X any](x X) int { var h H[X, int32]; _ = h; return 0 }` is rejected with f never instantiated, as is
+`func f[X any](h *H[X, int32]) int`.  The judgment is unsound besides: with `type H[V Tag[[4]uint8], W any] struct {
+k *K[V, W] }`, `func f[X Tag[[4]uint8]](x X) int { var h H[X, int64]; _ = h; return 0 }`, `f[@B](make(B))` called
+and @B a Tag[[4]uint8] and a Tag[[8]uint8], the program is rejected, "type argument X does not satisfy constraint
+Tag[[8]uint8]" at H's field, though H[@B, int64], the one instance named, satisfies it (written directly it is
+accepted).  All on binate main `32b3bbac6` and on `4368f116d`.  Proposed fix: judge no constraint in an abstract
+instance's structure (bound with a type parameter or `Self` among its arguments, other than a generic's own check;
+an alias target keeps its use's), so that only a declaration's own check and the named instances judge.  Then a
+declaration-level miss is never one an abstract instance found, and the specialization matching of binate
+`c42bd0c6e` (CheckError.MissArgs, missArgsCover) may have nothing left to decide; to be checked, and removed if so.
+NEEDS DECISION (asked 2026-11-17): it makes the checker accept programs it rejects now.
+
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
