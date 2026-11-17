@@ -467,35 +467,11 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### A miss an abstract instance finds stands, by its site alone, for every instance's there, and a real one is dropped — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5) (minor: real errors dropped, the program still rejected; found 2026-11-17, temp-5, reviews of the alias-target level fix; pre-existing)
-
-With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
-Tag[[8]uint8] alone and `type H[V any, W any] struct { k *K[@T, W]; v V }`: `func f[X any](x X) int { var h H[X,
-int32]; return 0 }` with `var h8 H[int8, int16]` reports only H[X, int32]'s miss of Tag[[4]uint8] at H's field, and
-H[int8, int16]'s miss of Tag[[2]uint8] there is dropped (declared the other way round, it is replaced).  The same
-through `type F[X any] struct { h H[[2][sizeof(X)]uint8, int32] }`, and through `Self`: with `interface J[S any, U
-any] { n(k *K[@T, U]) int }`, `interface I[U any] { m(j *J[Self, U]) int }` and I[int32] and J[R, int8] named,
-I[int32]'s J[Self, int32] drops J[R, int8]'s miss of Tag[[1]uint8].
-
-Cause: a miss found in an instance with an abstract argument counts as a declaration's (missDeclLevel:
-InstanceState.Concrete is raised only for arguments all concrete), and repeatsDeclarationMiss, foldInstanceMiss and
-InstanceState.DeclMissSites match an instance's miss against a declaration's by its site alone (sameMissSite).  That
-is right for an abstract instance the instance specializes (TestAbstractInstanceMissCoversConcrete: W[int32]'s miss
-repeats W[V]'s), and wrong for one it does not: H[int8, int16] does not specialize H[X, int32].
-
-Fix: record with a miss the type arguments bound when it is found (InstanceState, set by bindInstanceIn; for a
-recorded check, kept as its level is), and let a declaration's miss stand for an instance's only when each argument it
-was found with is abstract or identical to the instance's.  Tried and dropped: raising Concrete for arguments abstract
-only through `Self`.  Those instances name nothing, so one diagnostic was reported twice, named and bare; and
-argsMentionTypeParam, the predicate used, also sees a dependent length inside an instance's arguments
-(`H[G[[sizeof(X)]uint8], int32]`), which made such an instance's miss a declaration's and dropped another's.  Tests:
-each shape above, in both orders.  The alias-target level fix (the entry below) waits for this: judged at the use's
-level, `KT[U]` in J's method drops J[R, int8]'s miss the same way.
-
 ### Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a signature — 🔴 OPEN (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
 
-With K and `@T` as in the entry above, `type G2[S any, U any] struct { u U }`, `interface I[U any] { m(g G2[Self, U])
-int }`, `func use(i *I[int32]) {}` and `func (g *G2[S, U]) f(k *K[@T, U]) int { return 0 }`, the program is accepted;
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
+Tag[[8]uint8] alone, `type G2[S any, U any] struct { u U }`, `interface I[U any] { m(g G2[Self, U]) int }`, `func
+use(i *I[int32]) {}` and `func (g *G2[S, U]) f(k *K[@T, U]) int { return 0 }`, the program is accepted;
 with f declared before I it is rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at f's K.  A
 concrete instance's miss is reported: with G2[R, int8] named, "... Tag[[1]uint8] (in G2[R, int8].f, ...)".  The review
 read it as G2[Self, int32]'s method signatures being checked only when the method is collected before I forms the
@@ -508,37 +484,6 @@ Not only through `Self` (found 2026-11-17, temp-5, review of the specialization 
 struct { s S }`, `func f[X any](g *G2[X, int32]) int { return 0 }` and then `func (g *G2[S, U]) n(k *K[@T, U]) int {
 return 0 }`, the program is accepted; with n declared before f, or G2[X, int32] formed in f's body instead, it is
 rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at n's K.
-
-### A generic alias's target error reached through a method signature is reported twice — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
-
-pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`,
-`type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is a Tag[[2]uint8].  main declares `type G[U
-any] struct { u U }`, `var g G[int32]`, `func (g *G[U]) m(d *D[U]) int { return 0 }` and `type D[X any] struct { k
-lib.KT[int16]; x X }`.  The miss in D's field is reported once as "type argument @T does not satisfy constraint
-Tag[[2]uint8] (in D[int32], instantiated at <g's position> via G[int32])" and again, at the same position, with no
-context (D's own check).  With `lib.K[@lib.T, int16]` written for the field, or D[int32] named in a function body, it
-is reported once.  The entry's other half, a deferred check in an alias's target naming no instance, is done (binate
-`861970a23`).
-
-In one package the same shape repeats a miss too: with `type KP2[B any] = Pair[KT[int16], K[@T, B]]`, `type D[X any]
-struct { k KP2[X] }` and `var d D[int32]`, KT[int16]'s miss of Tag[[2]uint8] is reported at KP2's declaration and
-again at D's field "(in D[int32], ...)"; D's own check reports none, the instantiation having been judged first at
-KP2's declaration.
-
-A plain site shows it too: with `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]` (Pair a struct of an A and a B),
-`func (s @S) m(p *KP[int16, int32]) int`, `type I[X any] struct { p *Pair[K[@T, int16], K[@T, X]] }` and `var d
-I[int32]`, K[@T, int16]'s miss of Tag[[2]uint8] is reported at m's KP and again at I's field "(in I[int32], ...)".
-With `Pair[K[@T, int16], K[@T, int32]]` written in m it is reported once, at m: a miss judged in KP's target at the
-instance level is not recorded as a declaration-level one (GenericInstantiation.DeclMisses), so I's own check, finding
-the instantiation judged, notes no declaration miss for I[int32]'s to be matched against (noteDeclarationMisses).  A
-review found it with I an interface whose method takes the pointer.
-
-Cause: an instantiation in an alias's target with concrete arguments is checked at the instance level (bindAliasTarget
-raises InstanceState.Concrete), so its miss is never matched against the declaration's own (supersedeNamedError and
-repeatsDeclarationMiss go by missDeclLevel).  Fix: judge it at the level of the alias's use (bindAliasTarget keeping
-the use's Concrete), now that two misses in one target are told apart (binate `4368f116d`).  Test: each repro above as
-a unit test pinning each miss once.
-It waits for "A miss an abstract instance finds stands, by its site alone, for every instance's there" (above).
 
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 

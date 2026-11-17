@@ -1,3 +1,68 @@
+### A generic alias's target error reached through a method signature is reported twice — DONE (binate `32b3bbac6`, 2026-11-17, temp-5; user: "yes, go ahead; then continue") (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
+
+With pkg/lib's `type KT[U any] = K[@T, U]` (K's V a Tag of U's size, `@T` a Tag[[8]uint8] alone), main's `type D[X
+any] struct { k lib.KT[int16]; x X }` and D[int32] formed by a method signature (`func (g *G[U]) m(d *D[U]) int`, `var
+g G[int32]`) before D's own check, KT[int16]'s miss of Tag[[2]uint8] was reported twice at D's field: once "(in
+D[int32], instantiated at ... via G[int32])" and once naming nothing.  In one package, through `type KP2[B any] =
+Pair[KT[int16], K[@T, B]]` and `type D[X any] struct { k KP2[X] }`, the miss at KP2's declaration was repeated at D's
+field for D[int32]; and a miss first reported at a plain site through an alias (`func (s @S) m(p *KP[int16, int32])
+int`) was never recorded as a declaration-level one, so a generic writing the same instantiation had it reported again
+by an instance.
+
+Cause: bindAliasTarget binds an alias's target as an instantiation with the alias's arguments, and bindInstanceIn
+raised InstanceState.Concrete for concrete ones, so a miss in the target was found at the instance level even in a
+declaration's own check, and never matched against the declaration's own.
+
+Fix (binate `32b3bbac6`): the target is as if written at the use (gen.instantiate.alias), so bindAliasTarget keeps the
+use's level and type arguments (InstanceState.Concrete, Generics.BoundArgs and, for a replayed check,
+Generics.MissLevel).  The alias's own check (its own type parameters as the arguments) keeps a declaration's level as
+before.  It needed two earlier fixes: binate `4368f116d` (two misses of one generic in a target told apart) and binate
+`c42bd0c6e` (a declaration's miss stands only for the instances that specialize it -- without it, J[Self, int32]'s
+miss through `KT[U]` in J's method, now at the use's level, dropped J[R, int8]'s).  The first review of the plain fix
+found that; raising Concrete for instances abstract only through `Self` was tried as its fix and dropped (see the
+entry below).
+
+Tests (check_alias_target_miss_test.bn, where the alias-target miss tests moved from check_instance_naming_test.bn):
+TestAliasTargetMissOfDeclarationReportedOnce, TestAliasTargetMissOfDeclarationThroughNestedAlias,
+TestImportedAliasTargetMissOfDeclarationReportedOnce, TestAliasTargetDeclarationMissStandsForInstances,
+TestAliasTargetMissAtPlainSiteNotRepeatedByInstance and TestAliasTargetInSelfOnlyInstanceMissKeepsOthers, and
+TestAliasTargetInstanceMissKeptAndNamed pins that KP2's miss is not repeated; all six new ones fail with the fix
+reverted.  Validated with the two commits together: check unit tests (2133), spec/12-generics on builder-comp (182/0),
+the repl tests, e2e/bnlint-self.sh, hygiene, and 162 review probes against main (each difference a repeat removed or a
+dropped miss now reported; no exit status changed).
+
+### A miss an abstract instance finds stands, by its site alone, for every instance's there, and a real one is dropped — DONE (binate `c42bd0c6e`, 2026-11-17, temp-5; user: "yes, go ahead; then continue") (minor: real errors dropped, the program still rejected; found 2026-11-17, temp-5, reviews of the alias-target level fix; pre-existing)
+
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
+Tag[[8]uint8] alone and `type H[V any, W any] struct { k *K[@T, W]; v V }`: `func f[X any](x X) int { var h H[X,
+int32]; return 0 }` with `var h8 H[int8, int16]` reported only H[X, int32]'s miss of Tag[[4]uint8] at H's field, and
+H[int8, int16]'s miss of Tag[[2]uint8] there was dropped (declared the other way round, it was replaced).  The same
+through `type F[X any] struct { h H[[2][sizeof(X)]uint8, int32] }`, and through `Self`: I[int32]'s method signature
+writing `J[Self, U]` formed J[Self, int32], whose miss dropped J[R, int8]'s.
+
+Cause: a miss found in an instance with an abstract argument counts as a declaration's (missDeclLevel), and
+repeatsDeclarationMiss, foldInstanceMiss and InstanceState.DeclMissSites matched an instance's miss against a
+declaration's by its site alone (sameMissSite).  That is right for an abstract instance the instance specializes
+(W[int32]'s miss repeats W[V]'s), and wrong for one it does not.
+
+Fix (binate `c42bd0c6e`): a miss keeps the type arguments bound when it is found (CheckError.MissArgs, from
+Generics.BoundArgs, which bindInstanceIn and enterConcrete set, or for a recorded check from Generics.MissArgs, kept
+beside its level), and a declaration's miss stands for an instance's only when the instance's arguments specialize
+them (missArgsCover): each is the declaration's with its type parameters and `Self` replaced by types and its dependent
+lengths by lengths, matched by structure (argSpecializes).  A review found that a structured argument was first taken
+as a wildcard -- H[*X, int32]'s miss dropped H[int16, int32]'s -- and argSpecializes was made structural.  Tried and
+dropped before it: raising Concrete for instances abstract only through `Self`.  Those instances name nothing, so one
+diagnostic came out twice, named and bare; and the predicate used (argsMentionTypeParam) also sees a dependent length
+inside an instance's arguments, which made such an instance's miss a declaration's and dropped another's.
+
+Tests (check_miss_level_test.bn): TestAbstractInstanceMissCoversOnlyItsSpecializations (both H shapes, both orders),
+TestStructuredAbstractInstanceMissCoversOnlyItsSpecializations (H[*X, int32], both orders),
+TestSelfInstanceMissCoversOnlyItsSpecializations (both orders, and a struct G2[Self, int32]) and
+TestAbstractInstanceMissCoversItsSpecialization (W[V, int32]'s miss stands for W[int32, int32]'s); they fail with
+missArgsCover always true, and the structured one with abstract arguments taken as wildcards.  Still open beside it:
+"Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a
+signature" (claude-todo.md).
+
 ### Split pkg/binate/format's tests across the single-VM shards — DONE (binate `6402fea01`, 2026-11-16, work-3; confirmed on CI 2026-11-17)
 
 (claimed 2026-11-16, work-3; user: "yes, go ahead and take on splitting format's tests") **split
