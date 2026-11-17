@@ -7,6 +7,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM: a `...*any` slice too large to translate on the VM stack faults after the call's arguments are delivered -- they leak — 🔴 OPEN (MAJOR: a leak; found 2026-11-16, work-1, review of the func-value variadic fix; by reading, not yet reproduced)
+
+substituteSliceIfaceArgs (vm/vm_iface_native_vt.bn) copies a `...*any` / `...*I` slice's backing onto vm.Stack to
+translate its elements for a native callee, and when the copy does not fit (wouldFrameOverflow; ~490K elements on
+cmd/bni's 8 MiB stack) it raises a recoverable fault, and the dispatcher returns before the call.  The call's
+arguments have been delivered by then -- ownership moved to the callee (a borrowed `@I` RefInc'd, a fresh one taken
+by consumeTemp, a struct with managed fields copied) -- and the call op's cleanup pad leaves moved-out arguments
+alone (gen_local_cleanup.bn: "how an ordinary call's call-site pad leaves a moved-out argument alone"), so they leak;
+vm_extern.bn's comment that the pad releases "the in-flight moved args" is wrong.  On main in dispatchExternBinding
+(e.g. `fmt.Fprint(w, s...)`, w an `@io.Writer`); the func-value variadic fix (dispatchCompiledFuncValue,
+dispatchCompiledIfaceMethod) would add the same path.  It also copies whenever the slice is non-empty, even when no
+element carries a VM index, so a huge spread of nil / native elements faults where compiled code works.  Fix options:
+(a) no fault -- translate only when some element carries a VM index, and put a copy that does not fit on vm.Stack on
+the heap (rt.Alloc), freed after call_packed returns (also closes the unchecked retbuf growth after the copy, LOW
+"Cross-mode slices of interface values"); (b) move the size check into the pre-call check ops, before delivery.
+
 ### VM: a native variadic called through a function value gets its `...*any` elements untranslated -- SIGSEGV — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "yes, fix the function-value crash next") (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
 
 On the VM, `var p *func(...*any) = testing.Println; p(x, y)` dies with SIGSEGV (exit 139) before printing; compiled
