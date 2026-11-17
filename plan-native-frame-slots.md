@@ -54,6 +54,37 @@ Each step lands on its own, validated on the three native conformance modes (aa6
 Linux), with the parser frames re-measured.  Done when a struct and a func-parameter nesting at 1023 levels compile
 under the native-built bnc, and the frames are near LLVM's.
 
+## Step 4 design (2026-11-17)
+
+Spec §18.4 `mem.scope-exit`: the storage of every local declared in a block ends when that execution of the block
+exits (a loop body's locals are new storage each iteration; a raw pointer to one after its block exits is dangling),
+and `mem.temporary` ends a statement temporary's at the end of its statement.  So allocas whose lifetimes are disjoint
+may share bytes; the IR has to say where the lifetimes end.
+
+- **IR.**  `Instr.Scope` on an OP_ALLOC: the id (>= 1) of the scope whose exit ends its storage; 0 = none (lives the
+  whole function and is never shared).  A void `OP_SCOPE_END` with no operands carries the id in `Scope`, emitted
+  where control leaves the scope.  `Func.NextScope` numbers a function's scopes.  An id, not an operand naming the
+  alloca: the passes' escape checks treat any operand appearance of an alloca as an escape (mem2reg's
+  allocaEscapes), so an operand marker would turn promotion and SROA off for every marked local; an id is invisible
+  to them, and a pass that deletes an alloca leaves nothing dangling.  The inliner, the one place instructions move
+  between functions (cloneInstr), renumbers a callee's ids past the caller's.  The verifier checks the ids; the VM
+  and the native emitters emit nothing for OP_SCOPE_END.
+- **IR-gen.**  openScope takes a fresh id; defineVar stamps a variable's slot (an OP_ALLOC of the function, not a
+  parameter's, not a frame closure record's) with the innermost scope's id; closeScope emits OP_SCOPE_END at a
+  fall-through exit, after the releases; emitLeaveScopes emits it for each scope a `break`, `continue` or `return`
+  leaves.  Statement temporaries get a statement scope later (4e).
+- **Native.**  PlanFrame: an alloca with a scope is live from its OP_ALLOC and from every instruction naming it until
+  an OP_SCOPE_END of its scope -- a forward dataflow over the blocks, so a loop's back edge carries a live alloca to
+  the loop's top, and a use a pass moved above the OP_ALLOC still counts.  Two allocas interfere when one is live
+  where the other is referenced; they pack first fit by size and alignment, like the spill slots.  Scope 0 keeps
+  bytes of its own.
+- **LLVM.**  `llvm.lifetime.start` where the OP_ALLOC is (its alloca is hoisted to the entry), `llvm.lifetime.end`
+  at each OP_SCOPE_END for the scope's allocas still in the function; LLVM's stack colouring then shares them.
+
+Sub-steps, each landing on its own: 4a the IR (field, op, verifier, VM / backends ignore it, inliner renumbering, IR
+printing) with nothing emitting it; 4b IR-gen marks variables' scopes; 4c native PlanFrame shares by them (frames
+re-measured); 4d the LLVM intrinsics; 4e statement temporaries.
+
 ## Progress
 
 - 2026-11-10: measured (above); step 1 started.
