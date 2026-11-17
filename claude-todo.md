@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM: a `...*any` slice too large to translate on the VM stack faults after the call's arguments are delivered -- they leak — 🔴 OPEN (MAJOR: a leak; found 2026-11-16, work-1, review of the func-value variadic fix; by reading, not yet reproduced)
+### VM: a `...*any` slice too large to translate on the VM stack faults after the call's arguments are delivered -- they leak — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "Fix the leak first (Recommended)") (MAJOR: a leak; found 2026-11-16, work-1, review of the func-value variadic fix; by reading, not yet reproduced)
 
 substituteSliceIfaceArgs (vm/vm_iface_native_vt.bn) copies a `...*any` / `...*I` slice's backing onto vm.Stack to
 translate its elements for a native callee, and when the copy does not fit (wouldFrameOverflow; ~490K elements on
