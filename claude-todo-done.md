@@ -1,3 +1,27 @@
+### Two misses of one generic in an alias's target count as one, and an instance's is dropped — DONE (binate `4368f116d`, 2026-11-17, temp-5; user: "wait 16 minutes, then go ahead") (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
+
+`type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, with `@T` a Tag[[8]uint8] alone, `type Pair[A any, B any]
+struct { a A; b B }`, `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]`, `type D[X any] struct { k KP[int16, X] }`
+and `var d D[int32]`: D's own check reported K[@T, int16]'s miss of Tag[[2]uint8] at the field, and D[int32]'s miss of
+Tag[[4]uint8] (K[@T, int32]) was dropped.  A miss was known by its generic, its type parameter and its position, and
+every instantiation in a generic alias's target is reported at the alias's use (attributedPos), so two instantiations
+of one generic in a target were one miss there.
+
+Fix (binate `4368f116d`): a constraint miss also records where its instantiation is written in each generic alias
+target it is reported through, outermost first (CheckError.MissVia, from attributedVia; InstanceState.AliasVia carries
+the chain into a nested target), and repeatsDeclarationMiss, foldInstanceMiss and InstanceState.DeclMissSites compare
+it (sameMissSite).  A review found that two declaration-level misses of one text, merged into one error
+(appendUniqueCheckError), kept one site, so an instance's miss at the other came out again as an exact duplicate line;
+the merged-away site is now recorded in DeclMissSites (keepMergedMissSite), and a re-review found the held-report path
+needing the same (holdReport, releaseInto).  foldInstanceMiss no longer turns an instance's error into a copy of a
+line already reported; no program found reaches that.
+
+Tests (check_instance_naming_test.bn): TestAliasTargetTwoMissesOfOneGeneric and
+TestAliasTargetTwoMissesThroughNestedAlias fail with MissVia not compared, the second also with only the innermost
+position compared; TestAliasTargetMissesOfOneTextStandForBoth and TestAliasOwnMissesOfOneTextStandForBoth fail with
+the merged-away site not kept.  The repeat of an alias target's concrete miss is still open: "A generic alias's target
+error reached through a method signature is reported twice" (claude-todo.md).
+
 ### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — DONE (binate `f40e10c62`, 2026-11-17, work-3) (claimed 2026-11-16, work-3; user: "can you do the 2nd via CI?") (filed 2026-11-16, work-3)
 
 - release.yml's Linux jobs run on ubuntu-24.04 (binate `040e0dac6`) because linked on the 26.04 image, the

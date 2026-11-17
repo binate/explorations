@@ -489,26 +489,19 @@ struct { k KP2[X] }` and `var d D[int32]`, KT[int16]'s miss of Tag[[2]uint8] is 
 again at D's field "(in D[int32], ...)"; D's own check reports none, the instantiation having been judged first at
 KP2's declaration.
 
+A plain site shows it too: with `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]` (Pair a struct of an A and a B),
+`func (s @S) m(p *KP[int16, int32]) int`, `type I[X any] struct { p *Pair[K[@T, int16], K[@T, X]] }` and `var d
+I[int32]`, K[@T, int16]'s miss of Tag[[2]uint8] is reported at m's KP and again at I's field "(in I[int32], ...)".
+With `Pair[K[@T, int16], K[@T, int32]]` written in m it is reported once, at m: a miss judged in KP's target at the
+instance level is not recorded as a declaration-level one (GenericInstantiation.DeclMisses), so I's own check, finding
+the instantiation judged, notes no declaration miss for I[int32]'s to be matched against (noteDeclarationMisses).  A
+review found it with I an interface whose method takes the pointer.
+
 Cause: an instantiation in an alias's target with concrete arguments is checked at the instance level (bindAliasTarget
 raises InstanceState.Concrete), so its miss is never matched against the declaration's own (supersedeNamedError and
-repeatsDeclarationMiss go by missDeclLevel).  Fix: judge it at the level of the alias's use -- after "Two misses of
-one generic in an alias's target count as one" below: tried first, it dropped D[int32]'s real miss of Tag[[4]uint8] in
-that entry's repro, two misses in one target being one there.  Test: each repro above as a unit test pinning each miss
-once.
-
-### Two misses of one generic in an alias's target count as one, and an instance's is dropped — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
-
-`type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, with `@T` a Tag[[8]uint8] alone, `type Pair[A any, B any]
-struct { a A; b B }`, `type KP[A any, B any] = Pair[K[@T, A], K[@T, B]]`, `type D[X any] struct { k KP[int16, X] }`
-and `var d D[int32]`: D's own check reports K[@T, int16]'s miss of Tag[[2]uint8] at the field, and D[int32]'s miss
-of Tag[[4]uint8] (K[@T, int32]) is dropped. Writing `Pair[K[@T, int16], K[@T, X]]` for the field reports both, at
-their own columns. A miss is known by its generic, its type parameter and its position (repeatsDeclarationMiss,
-foldInstanceMiss, InstanceState.DeclMissSites), and every instantiation in a generic alias's target is reported at
-the alias's use (attributedPos), so two instantiations of one generic in a target are one miss there. The program is
-rejected either way.
-
-Fix: give a miss the position its instantiation is written at in the target (the chain of them, for nested aliases)
-beside the use's, and compare it in those three. Test: the repro as a unit test pinning both misses.
+repeatsDeclarationMiss go by missDeclLevel).  Fix: judge it at the level of the alias's use (bindAliasTarget keeping
+the use's Concrete), now that two misses in one target are told apart (binate `4368f116d`).  Test: each repro above as
+a unit test pinning each miss once.
 
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
