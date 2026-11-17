@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM: a named raw `*any` slice over another named type, spread into a native variadic, reaches the callee with its interface values untranslated -- SIGSEGV — 🔴 OPEN (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the VM cross-mode walks change)
+### VM: a named raw `*any` slice over another named type, spread into a native variadic, reaches the callee with its interface values untranslated -- SIGSEGV — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "Fix it now (Recommended)") (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the VM cross-mode walks change)
 
 On the VM, `type N1 *[]*any; type N2 N1; var n2 N2 = parts[:]; fmt.Println(n2...)` dies with SIGSEGV (exit 139);
 compiled (LLVM) it prints the elements, and an alias (`type A = *[]*any`) or a single named level works on the VM too.
