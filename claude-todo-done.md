@@ -1,3 +1,21 @@
+### Finish the containers move: the examples repo, then delete the flat forwarders — DONE (examples `789144e`, binate `83d8bfc74`, 2026-11-16, work-3) (claimed 2026-11-16, work-3; user: "I guess you can take on step 3 if everything is ready"; the examples repo moved in its `789144e`)
+
+The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
+(binate `083146cf1`); `expose` forwarders at the old flat `pkg/std/<name>` paths keep the rest
+resolving.  Every in-tree consumer imports the new paths (the BUILDER-compiled tree since binate
+`c5dd1c911`).  Remaining, in order:
+
+1. **The examples repo** (pinned to a released bnc) imports the flat paths in
+   `containers/{cmd/wordcount,pkg/tally*}`, `files/cmd/tour`, `fmt/pkg/table*` and two
+   READMEs; move them once examples bumps to a release that has `pkg/std/containers`.
+2. **Delete the seven forwarders** (`ifaces/stdlib/pkg/std/<name>.bni`) once nothing
+   imports them.  The hygiene checks need no edit (they auto-discover forwarders).
+- The irgen forwarder-resolution bug that made the forwarders unsafe for out-of-tree importers
+  is fixed (binate `a7331ce01`).
+Done: the examples repo moved onto pkg/std/containers with its bump to bnc-0.0.17 (examples `789144e`), and the
+seven flat forwarders are deleted (binate `83d8bfc74`); nothing in binate, docs, website or examples names the flat
+paths.  (Step 1, the BUILDER-compiled tree's imports, is its own done entry: binate `c5dd1c911`.)
+
 ### VM: a named raw `*any` slice over another named type, spread into a native variadic, reached the callee with its interface values untranslated -- SIGSEGV — DONE (binate `19696c824`, test `d55e5604f`, 2026-11-16, work-1; MAJOR; user: "Fix it now (Recommended)")
 
 On the VM, `type N1 *[]*any; type N2 N1; var n2 N2 = parts[:]; fmt.Println(n2...)` dies with SIGSEGV (exit 139);
