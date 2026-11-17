@@ -118,6 +118,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
 - XOP (user, 2026-11-16: "TBM in 1i, rest in 4 (Recommended)"): AMD's XOP-encoded instructions (prefix 8F), which
   clang takes and no stage had covered — TBM's general-purpose ones in 1i beside BMI, XOP's vector instructions
   and FMA4 in stage 4 beside AVX / FMA.
+- Symbols in shift counts and bit offsets (user, 2026-11-16: "Accept everywhere (Recommended)"): the counts of ror /
+  rol / rcl / rcr / shl / sal / shr / sar / shld / shrd and the offsets of bt / bts / btr / btc take `offset x`, as
+  clang (R_X86_64_8; Mach-O UNSIGNED of 1 byte), as rorx's count and TBM bextr's control do; in the 1i commit.
+  Lifts plan-tls.md 3d2's last deliberate reject of a symbol in an immediate (the INT / RET one went in 1g2).
+- `xacquire` / `xrelease` (user, 2026-11-16: "As GNU as (Recommended)"): with an instruction on the line, they need
+  a lock-prefixed lockable instruction or an xchg with memory, and `xrelease` alone also a mov to memory, else an
+  error, as GNU as ("missing `lock' with `xacquire'", "invalid instruction `movbe' after `xacquire'"); clang emits
+  F2 / F3 before anything, which can turn the instruction into another (`xacquire movbe` is crc32, `xrelease bsf`
+  tzcnt).  In the 1i commit.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
