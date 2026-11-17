@@ -1,3 +1,23 @@
+### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — DONE (binate `f40e10c62`, 2026-11-17, work-3) (claimed 2026-11-16, work-3; user: "can you do the 2nd via CI?") (filed 2026-11-16, work-3)
+
+- release.yml's Linux jobs run on ubuntu-24.04 (binate `040e0dac6`) because linked on the 26.04 image, the
+  linux-x64 tools came out needing x86-64-v3 (entry above).  That lasts only until GitHub retires its 24.04
+  runners.  Investigate running those jobs on ubuntu-26.04 inside the Docker Hub `ubuntu:26.04` image
+  (`container:`), the baseline amd64 build (a stock `ubuntu:26.04` container links a baseline program), installing
+  clang, gcc-aarch64-linux-gnu and curl there.  First confirm on a 26.04 runner what carries the v3 note
+  (`readelf -n` on /usr/lib/x86_64-linux-gnu/crt1.o, libc_nonshared.a, the libgcc objects), and check the built
+  tools' note before relying on it.
+- Not a way out: `-Wl,-z,x86-64-baseline` (ld ORs levels, it cannot lower one an input brings), and on 26.04's
+  ld 2.46 that flag with a v3-noted input aborts the link ("internal error ... elfxx-x86.c:4082 in
+  _bfd_x86_elf_merge_gnu_properties").  Other ways to a baseline note: strip `.note.gnu.property` after linking
+  (hides a real requirement too), or link the tools with bnld (no C startup objects, no property notes).
+Done: a probe on a GitHub ubuntu-26.04 runner showed the image sets `APT::Architecture-Variants "amd64v3"`, and its
+libc6-dev's crt1.o / Scrt1.o carry "x86 ISA needed: x86-64-baseline, x86-64-v2, x86-64-v3" (libgcc, libc_nonshared,
+crtbegin/crtend carry none); a plain `int main` linked there by clang 21.1.8 or gcc 15.2 needs v3.  Inside the Docker
+Hub ubuntu:26.04 image crt1.o is baseline, and make-bundle.sh built both Linux bundles there (linux-x64's tools:
+x86-64-baseline, GLIBC_2.34).  release.yml's Linux jobs now run on ubuntu-latest in that container (binate
+`f40e10c62`); a copy of the new build job built all three platforms on CI (macOS on its runner, an empty container).
+
 ### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — DONE (binate `c526c47b0`, 2026-11-16, work-6; user: "wait 7 minutes, then go ahead"; MAJOR, silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix)
 
 A session importing pkg/vfwd (`expose "pkg/vlib"`) took `type vlib = P` and `vlib.Add` named pkg/vlib's Add

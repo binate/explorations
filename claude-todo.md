@@ -101,20 +101,6 @@ length's expression is not checked anywhere else.  Fix: hold the operand to the 
 (checkValueOfType, check_opaque_recheck.bn once the slice-element fix lands).  Test: the program above as a conformance
 error test, in both orders.
 
-### Build the Linux release bundles on the ubuntu-26.04 runner again, in a baseline container — 🟡 IN PROGRESS (claimed 2026-11-16, work-3; user: "can you do the 2nd via CI?") (filed 2026-11-16, work-3)
-
-- release.yml's Linux jobs run on ubuntu-24.04 (binate `040e0dac6`) because linked on the 26.04 image, the
-  linux-x64 tools came out needing x86-64-v3 (entry above).  That lasts only until GitHub retires its 24.04
-  runners.  Investigate running those jobs on ubuntu-26.04 inside the Docker Hub `ubuntu:26.04` image
-  (`container:`), the baseline amd64 build (a stock `ubuntu:26.04` container links a baseline program), installing
-  clang, gcc-aarch64-linux-gnu and curl there.  First confirm on a 26.04 runner what carries the v3 note
-  (`readelf -n` on /usr/lib/x86_64-linux-gnu/crt1.o, libc_nonshared.a, the libgcc objects), and check the built
-  tools' note before relying on it.
-- Not a way out: `-Wl,-z,x86-64-baseline` (ld ORs levels, it cannot lower one an input brings), and on 26.04's
-  ld 2.46 that flag with a v3-noted input aborts the link ("internal error ... elfxx-x86.c:4082 in
-  _bfd_x86_elf_merge_gnu_properties").  Other ways to a baseline note: strip `.note.gnu.property` after linking
-  (hides a real requirement too), or link the tools with bnld (no C startup objects, no property notes).
-
 ### CI red: the slow lanes hit their job time limits — unit int-int shards, conformance int-int and comp-comp-comp — 🟡 IN PROGRESS on option (a) (claimed 2026-10-28, work-3; user: "both", then "(a)") (filed 2026-10-28, work-3)
 
 Unit run 40643666280 (at f7e99b80b): builder-comp-int-int shards 3, 5 and 6 of 12 cancelled at the 45-minute limit.

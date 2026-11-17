@@ -207,7 +207,9 @@ still exercises the real pipeline):
    tools must say `x86 ISA needed: x86-64-baseline` and nothing higher, and
    `objdump -T` must show no glibc symbol version newer than earlier
    releases needed (`GLIBC_2.34` as of 0.0.17).  The first 0.0.17 build,
-   made on the ubuntu-26.04 runner, needed x86-64-v3 and was deleted.
+   made on the ubuntu-26.04 runner, needed x86-64-v3 and was deleted;
+   make-bundle.sh now fails a linux-x64 bundle that needs more than the
+   baseline (scripts/check-elf-isa.sh), so this step re-checks it by hand.
 
 If anything's wrong, delete the GitHub release + tag and start over
 — don't ship a bad release just because the tag is already there.
@@ -273,6 +275,12 @@ Treat these as critical fix-now bugs.
 
 For each platform in the matrix (`linux-x64`, `linux-arm64`, `macos-arm64`):
 
+0. The Linux jobs run on `ubuntu-latest` inside the Docker Hub `ubuntu:26.04`
+   image, installing clang, binutils, curl and git (and the aarch64 cross
+   toolchain) there.  The runner image itself is Ubuntu's amd64v3 build: its
+   libc6-dev's `crt1.o` / `Scrt1.o` carry an "x86 ISA needed: x86-64-v3" note
+   that the linker copies into every program, so tools linked on it would not
+   run on an x86-64 CPU without AVX2.  The macOS job runs on its runner.
 1. Checks out `binate` (no Go, no bootstrap: the BUILDER is a released
    bundle).
 2. Runs `scripts/make-bundle.sh --version <tag> --platform <platform>`,
