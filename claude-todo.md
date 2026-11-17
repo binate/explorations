@@ -2884,14 +2884,6 @@ declaration's, an interface declaration's, an impl's and the package clause's, c
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
 (conformance/spec/16-packages/071_annotation_degenerate.bn).
 
-### Spec: an annotation block and its entries' arguments take a trailing comma — 🟡 IN PROGRESS (claimed 2026-11-16, temp-4; user: "Spec allows it (Recommended)") 🟢 LOW (found 2026-11-16, temp-4, working on bnfmt's annotation comments)
-
-The parser accepts a trailing comma in an annotation block (`#[a, b,` with the `]` on the next line) and in an
-entry's arguments (`build(x,)`), but the grammar (docs/spec/binate.ebnf `Annotation`, `AnnotationEntry`) has neither,
-and its note on trailing commas lists arguments, parameters, type lists and composite elements only.  Decided
-2026-11-16: the spec allows them -- the note covers annotation blocks and entries' arguments too -- and a conformance
-test pins both.
-
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,

@@ -1,3 +1,12 @@
+### Spec: an annotation block and its entries' arguments take a trailing comma — DONE (docs `447f264`, binate `069c8defe`, 2026-11-16, temp-4; user: "Spec allows it (Recommended)", landed on "yes, go ahead"; LOW; found 2026-11-16, temp-4, working on bnfmt's annotation comments)
+
+The parser accepted a trailing comma in an annotation block (`#[a, b,` with the `]` on the next line) and in an
+entry's arguments (`build(x,)`), but the grammar had neither.  The spec now allows both where they span lines, as in
+any list: the grammar's note on trailing commas lists annotation blocks and entries' arguments, and pkg.annotation
+says so (docs `447f264`; Annex A regenerated, rule-IDs unchanged).
+conformance/spec/16-packages/073_annotation_trailing_comma (binate `069c8defe`) pins both, each in a build gate that
+still decides which of two same-named declarations survives.
+
 ### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — DONE (binate `017f68dde`, 2026-11-16, work-6: plan-irgen-checker-types 6-4; landed on "wait 8 minutes, then land"; MAJOR, silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1)
 
 pkg/glib's `.bni` declared `func helper() int` and `func H[T any]() *uint8 { return _func_handle(helper) }`, and
