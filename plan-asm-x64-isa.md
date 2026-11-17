@@ -61,7 +61,9 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
    - (Jump relaxation — a jump to a label within reach rel8, as clang's — is step 12 of
      plan-native-code-placement.md, an `asm/x64` feature there; not in this series.  User 2026-11-11.)
    - 1i. The VEX-encoded integer instructions (BMI1 / BMI2: andn, bextr, blsi, blsmsk, blsr, bzhi, mulx, pdep,
-     pext, rorx, sarx, shlx, shrx) and ADX, MOVBE, CRC32 — with the VEX prefix encoder stage 4 builds on.
+     pext, rorx, sarx, shlx, shrx), AMD's XOP-encoded TBM (bextr imm32, blcfill, blci, blcic, blcmsk, blcs,
+     blsfill, blsic, t1mskc, tzmsk) and ADX, MOVBE, CRC32 — with the VEX and XOP prefix encoders stage 4 builds
+     on.
    - 1j. The system instructions: control / debug register moves, rdmsr / wrmsr, cpuid, rdtsc / rdtscp, the
      fences, prefetch*, cli / sti, in / out, the descriptor-table loads and stores, sysret / sysenter / sysexit,
      invlpg, wbinvd, xsave / xrstor and the other state-management instructions.
@@ -74,7 +76,8 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
      by the 1d review.
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
 3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`).
-4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers.
+4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers;
+   and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-14, below).
 5. **EVEX: AVX-512** (`asm/x64/avx512`): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
    the compressed disp8*N, the 32 vector registers.
 6. **APX and AMX**: r16-r31 (REX2), the EVEX-promoted general-purpose forms (new data destination, no-flags),
@@ -112,6 +115,9 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   (Mach-O UNSIGNED of 1 / 2 bytes), as `mov al / ax, offset x` already are — a symbol defined elsewhere as an
   absolute constant is meaningful there.  Lifts plan-tls.md 3d2's deliberate reject of a symbol as an INT vector
   or RET's stack release.
+- XOP (user, 2026-11-14: "TBM in 1i, rest in 4 (Recommended)"): AMD's XOP-encoded instructions (prefix 8F), which
+  clang takes and no stage had covered — TBM's general-purpose ones in 1i beside BMI, XOP's vector instructions
+  and FMA4 in stage 4 beside AVX / FMA.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
