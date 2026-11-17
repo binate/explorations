@@ -2,8 +2,8 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Steps 1-3 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14; `534ef01b5`, section 15); step 4
-to do (temp-5).
+Steps 1-3 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14; `534ef01b5`, section 15); step 4's
+spec note landed (docs `d8166c6`, section 16), its expected-fail tests to land (temp-5).
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -440,3 +440,32 @@ Tests: conformance spec/12-generics 227-229; check unit tests TestViewRootAliasT
 TestViewRootBackfilledMethodJudged, TestViewRootAliasInBni, TestViewRootAliasInRootedInstance,
 TestViewRootAliasInBackfilledMethod, TestViewRootCallConstraintFormed.  Step 4 (the spec note on the remaining
 difference, Q1) is next; its wording needs the user's approval.
+
+## 16. Step 4: the spec note (2026-11-16)
+
+The note's first draft gave one condition: a chain rooted in R's `.bn` whose instance's type arguments mention the
+receiver of an impl private to R. A focused review (two rounds, with probes) found it wrong in two ways:
+
+- The view root is not carried down the whole chain. A naming in the root package's `.bn` sets it again, a naming in a
+  `.bni` (or in a package with no `.bni`) passes it on, and each link keeps it only when its own type arguments
+  mention the named type of a private impl's receiver (`*T` counts for `impl @T`). Probe C2, which the draft predicted
+  accepted, is rejected.
+- A second route Q1 did not name: anything written in P's `.bn` sees P's private impls whatever a type's origin, so a
+  type supplied by a root written in P's `.bni` -- which the rule judges at that root, without them -- is served too
+  (probes G3, E3v).
+
+Both come from choosing the impls per instance or site rather than per type, so the note documents both. The user
+approved the revised wording (2026-11-16, "go for it"); it landed as docs `d8166c6`, at the end of gen.mono.check.
+Every probe behaves the same on binate main `f794ed132` as on `534ef01b5`.
+
+Expected-fail tests (committed on the work branch, not yet landed): conformance spec/12-generics 230 (the view-root
+route: probe A, `Out[@T, int32]` named in lib's `.bn`) and 231 (the `.bn` route: probe G3, a `.bn` method checked for
+an instance named in lib's `.bni`), each `.xfail.all`, with the error positions the checker gives for the same
+programs with `int16`, which no impl serves.
+
+The review also turned up two diagnostic issues, filed as todo entries: a `.bn` method's instance check names its
+instance again at the method's receiver (a spurious second chain; since step 1, `ed737493f`; claimed), and a
+constraint missed at a generic's declaration is printed with its dependent length as 0 (pre-existing).
+
+Remaining: land the tests; then the v2 entry for the difference (claude-todo-v2.md), the todo entry to the done file,
+and this plan to done/.

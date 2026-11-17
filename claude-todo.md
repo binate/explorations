@@ -489,7 +489,7 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-3 landed, binate `ed737493f`, `8f0f493e2`, `534ef01b5`; step 4 next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
+### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-3 landed, binate `ed737493f`, `8f0f493e2`, `534ef01b5`; step 4's spec note landed, docs `d8166c6`, its expected-fail tests next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
 any](t T) int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package
