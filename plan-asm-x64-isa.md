@@ -207,5 +207,10 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   adcx / adox with three operands) are stage 6's.  Left in claude-todo.md (the x86-64 coverage entry): `[rip]` /
   `[rip ± n]` with no symbol; `@PLT` / `@GOT` in a memory operand.
 
-Next: 1j, the system instructions (above).  x64.bni is at 964 of its 1000-line cap: 1j's encoders go into a
-sub-package of their own (as asm/x64/sse, strop, ctrl, gpext).
+- x64.bni split — landed binate `0d7e38b30` (2026-11-17; user: "can you split x64.bni as a preliminary step?",
+  then "Four moves (Recommended)"): x87 into asm/x64/x87 (stage 2 extends it), the prefixes written as instructions
+  into asm/x64/prefix (LockNext stays in x64), int / int3 / ud2 / syscall into asm/x64/ctrl, the flag instructions
+  into asm/x64/flags; x64.bni 964 -> 861 lines.
+
+Next: 1j, the system instructions (above), in a sub-package of their own (sysret / sysenter / sysexit beside
+syscall in asm/x64/ctrl).
