@@ -1,3 +1,16 @@
+### VM: a named raw `*any` slice over another named type, spread into a native variadic, reached the callee with its interface values untranslated -- SIGSEGV — DONE (binate `19696c824`, test `d55e5604f`, 2026-11-16, work-1; MAJOR; user: "Fix it now (Recommended)")
+
+On the VM, `type N1 *[]*any; type N2 N1; var n2 N2 = parts[:]; fmt.Println(n2...)` dies with SIGSEGV (exit 139);
+compiled (LLVM) it prints the elements, and an alias (`type A = *[]*any`) or a single named level works on the VM too.
+argIsSliceOfRawIface (vm/lower_slots.bn) peels one alias and then one named level from the slice, and the same from its
+element, but a named type over a named type keeps that named type as its underlying, so the slice is not seen as one of
+raw interface values: the call site records no SliceIfaceSlots, and the injected-native callee (pkg/std/fmt)
+dereferences bytecode vtable words.  An element type two named levels deep (`type E0 *any; type E E0`, a `*[]E`) is
+missed the same way.  Fixed by peeling the slice and its element with types.StripWrappers (binate
+`19696c824`); the element case, which no spread into a `...*any` parameter can reach, is in
+TestArgIsSliceOfRawIfaceWrappers.  Test: conformance 1753_variadic_spread_named_raw_any_slice (an alias, one, two and
+three named levels; its VM `.xfail` markers removed with the fix).
+
 ### A `.bn` method's instance check names its instance again at the method's receiver, giving a miss a spurious second chain — DONE (binate `3e67f3899`, 2026-11-16, temp-5; user: "yes, go ahead")
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
