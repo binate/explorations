@@ -7,34 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM: a `...*any` slice too large to translate on the VM stack faults after the call's arguments are delivered -- they leak — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "Fix the leak first (Recommended)") (MAJOR: a leak; found 2026-11-16, work-1, review of the func-value variadic fix; by reading, not yet reproduced)
-
-substituteSliceIfaceArgs (vm/vm_iface_native_vt.bn) copies a `...*any` / `...*I` slice's backing onto vm.Stack to
-translate its elements for a native callee, and when the copy does not fit (wouldFrameOverflow; ~490K elements on
-cmd/bni's 8 MiB stack) it raises a recoverable fault, and the dispatcher returns before the call.  The call's
-arguments have been delivered by then -- ownership moved to the callee (a borrowed `@I` RefInc'd, a fresh one taken
-by consumeTemp, a struct with managed fields copied) -- and the call op's cleanup pad leaves moved-out arguments
-alone (gen_local_cleanup.bn: "how an ordinary call's call-site pad leaves a moved-out argument alone"), so they leak;
-vm_extern.bn's comment that the pad releases "the in-flight moved args" is wrong.  On main in dispatchExternBinding
-(e.g. `fmt.Fprint(w, s...)`, w an `@io.Writer`); the func-value variadic fix (dispatchCompiledFuncValue,
-dispatchCompiledIfaceMethod) would add the same path.  It also copies whenever the slice is non-empty, even when no
-element carries a VM index, so a huge spread of nil / native elements faults where compiled code works.  Fix options:
-(a) no fault -- translate only when some element carries a VM index, and put a copy that does not fit on vm.Stack on
-the heap (rt.Alloc), freed after call_packed returns (also closes the unchecked retbuf growth after the copy, LOW
-"Cross-mode slices of interface values"); (b) move the size check into the pre-call check ops, before delivery.
-
-### VM: a native variadic called through a function value gets its `...*any` elements untranslated -- SIGSEGV — 🟡 IN PROGRESS (claimed 2026-11-16, work-1; user: "yes, fix the function-value crash next") (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
-
-On the VM, `var p *func(...*any) = testing.Println; p(x, y)` dies with SIGSEGV (exit 139) before printing; compiled
-(LLVM) it prints, and `testing.Println(x, y)` works on the VM.  A call through a function value made from an extern
-goes through dispatchCompiledFuncValue (vm_exec_funcref.bn), which applies the call's ArgIfaceLayout.Slots (top-level
-and nested interface arguments) but not its SliceIfaceSlots, so the packed `*[]*any`'s elements reach the native
-callee with bytecode vtable words; only the extern dispatch (vm_extern.bn) calls substituteSliceIfaceArgs.
-dispatchCompiledIfaceMethod (vm_exec_iface.bn) has the same gap for an injected interface method with a `...*I`
-parameter (none in the stdlib).  Fix: translate the slice slots in both dispatchers -- substituteSliceIfaceArgs on the
-packed window (`&regs[Src2]` / `&callArgs[1]`), then the fault check dispatchExternBinding makes after it.  Test:
-conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail` on the three VM modes.
-
 ### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — 🟡 IN PROGRESS (claimed 2026-11-16, work-6; user chose "REPL fix next": the REPL records those packages under their full path), MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix; pre-existing: on main at binate `017f68dde`)
 
 - **Symptom:** a session rooted at a file importing pkg/vfwd (its `.bni` is `expose "pkg/vlib"`; pkg/vlib declares
@@ -2355,10 +2327,10 @@ Only a raw slice of raw interface values passed directly as an argument (a `...*
 elements translated for a native callee.  Not translated: a slice of MANAGED interface values (`*[]@I`;
 argIsSliceOfRawIface excludes it, though its elements are two words like a raw one's, so the same translation would
 serve -- no library variadic takes one); a `*[]*I` nested in a by-value aggregate argument, or returned from a VM
-function to native code (collectIfaceVtOffsets does not descend into slices).  The translation copies the backing, so
-a native callee that writes an element of a spread does not write the caller's (`func.variadic.spread` forwards the
-slice, no copy).  Unverified: the copy grows vm.SP at run time past the frame-entry reservation, checked against
-stackLimit, and the extern retbuf growth after it in the same statement is not checked against the red zone.
+function to native code (collectIfaceVtOffsets does not descend into slices).  The translation copies the backing when an
+element carries a VM index, so a native callee that writes an element of such a spread does not write the caller's
+(`func.variadic.spread` forwards the slice, no copy) -- in all three dispatchers (the extern, func-value and native
+interface-method ones).
 
 ### A native package linked into a VM host but not injected misses its interface assertions on boxes the VM made — 🔴 OPEN (minor: a wrong run-time result, in a custom host only; found 2026-11-10, temp-5, review of the cross-mode interface-id fix; by reading, latent)
 

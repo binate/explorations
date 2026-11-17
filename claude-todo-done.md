@@ -1,3 +1,42 @@
+### VM: a native variadic called through a function value got its `...*any` elements untranslated -- SIGSEGV — DONE (binate `73cb63433`, test `755971571`, 2026-11-16, work-1; MAJOR; user: "yes, fix the function-value crash next")
+
+On the VM, `var p *func(...*any) = testing.Println; p(x, y)` dies with SIGSEGV (exit 139) before printing; compiled
+(LLVM) it prints, and `testing.Println(x, y)` works on the VM.  A call through a function value made from an extern
+goes through dispatchCompiledFuncValue (vm_exec_funcref.bn), which applies the call's ArgIfaceLayout.Slots (top-level
+and nested interface arguments) but not its SliceIfaceSlots, so the packed `*[]*any`'s elements reach the native
+callee with bytecode vtable words; only the extern dispatch (vm_extern.bn) calls substituteSliceIfaceArgs.
+dispatchCompiledIfaceMethod (vm_exec_iface.bn) has the same gap for an injected interface method with a `...*I`
+parameter (none in the stdlib).  Fix: translate the slice slots in both dispatchers -- substituteSliceIfaceArgs on the
+packed window (`&regs[Src2]` / `&callArgs[1]`), then the fault check dispatchExternBinding makes after it.  Test:
+conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail` on the three VM modes.
+
+Fixed: dispatchCompiledFuncValue and dispatchCompiledIfaceMethod translate the layout's SliceIfaceSlots as
+dispatchExternBinding does (in the same commit as the leak fix); conformance 1754's VM `.xfail` markers removed.
+
+### VM: a `...*any` slice too large to translate on the VM stack faulted after the call's arguments were delivered -- they leaked — DONE (binate `73cb63433`, 2026-11-16, work-1; MAJOR; user: "Fix the leak first (Recommended)")
+
+substituteSliceIfaceArgs (vm/vm_iface_native_vt.bn) copies a `...*any` / `...*I` slice's backing onto vm.Stack to
+translate its elements for a native callee, and when the copy does not fit (wouldFrameOverflow; ~490K elements on
+cmd/bni's 8 MiB stack) it raises a recoverable fault, and the dispatcher returns before the call.  The call's
+arguments have been delivered by then -- ownership moved to the callee (a borrowed `@I` RefInc'd, a fresh one taken
+by consumeTemp, a struct with managed fields copied) -- and the call op's cleanup pad leaves moved-out arguments
+alone (gen_local_cleanup.bn: "how an ordinary call's call-site pad leaves a moved-out argument alone"), so they leak;
+vm_extern.bn's comment that the pad releases "the in-flight moved args" is wrong.  On main in dispatchExternBinding
+(e.g. `fmt.Fprint(w, s...)`, w an `@io.Writer`); the func-value variadic fix (dispatchCompiledFuncValue,
+dispatchCompiledIfaceMethod) would add the same path.  It also copies whenever the slice is non-empty, even when no
+element carries a VM index, so a huge spread of nil / native elements faults where compiled code works.  Fix options:
+(a) no fault -- translate only when some element carries a VM index, and put a copy that does not fit on vm.Stack on
+the heap (rt.Alloc), freed after call_packed returns (also closes the unchecked retbuf growth after the copy, LOW
+"Cross-mode slices of interface values"); (b) move the size check into the pre-call check ops, before delivery.
+
+Fixed (option (a)): a slice with no VM-index value is passed as it is; a copy rides vm.Stack only when it fits with
+what may still be pushed after it -- the rest of the calling statement's growth (its function's MaxStmtTempGrowth,
+passed to each dispatcher as `growth`) and the dispatch's retbuf -- and otherwise goes on the heap (rt.Alloc), freed
+once the callee returns (releaseSliceCopies); nothing faults.  The review of the fix found that a stack copy moved
+every later push of the statement past the frame-entry reservation; the reserve's `growth` covers it.  Tests:
+TestSliceIfaceCopyOnStack / TooLargeGoesToHeap / NoVmIfaceNotCopied, the two dispatcher slice tests (stack, heap,
+heap for the statement's growth) and TestCrossModeSliceTooLargeStillCalls.
+
 ### A constraint miss's note names its probe's instances with no view root, adding two false errors — DONE (binate `3e67f3899`, test `d839dbae8`, 2026-11-16, temp-5; the test landed on "wait 3 minutes, then go ahead")
 
 When a type argument missed a constraint because the impl that would serve it is private to another package, the
