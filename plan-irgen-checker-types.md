@@ -355,11 +355,19 @@ IR-gen cannot map is an internal error, never `int`.
      package constant is the last registered under its name (genExpr took the first).  Syntax with no record is
      still read by its spelling.  Sweep: object code identical to the capture fix's for every conformance
      program and cmd/bnc; the differential's only notes are 1748 / 1749 (6-4) and 1750.
-   - 6-4: function references -- funcRefName / namesFunction / funcRefShadowed, genExprOrFuncRef, direct calls,
-     `pkg.F` (buildQualNameHomed), and the operands of `_func_handle` / `__c_entry` (gen_builtin.bn,
-     gen_builtin_ffi.bn; a generic body's bare operand names the wrong function today -- the MAJOR todo entry,
-     conformance 1748 / 1749) -- from the record.  Decided (2026-11-14, user, asked for a stopgap now or the
-     fix here: "Let's do the proper fix."): no stopgap; this increment fixes it.
+   - 6-4 DONE (binate `017f68dde`, 2026-11-16; user: "wait 8 minutes, then land"): function references -- an
+     identifier or `pkg.F`, called or taken as a function value (funcRefName / funcRefTarget, which namesFunction,
+     genExprOrFuncRef and the declaration forms use), the operands of `_func_handle` / `__c_entry`
+     (builtinFuncOperand) and a package's members `pkg.X` (pkgMemberQualName; a constant's package, memberPkgPath)
+     -- from the record: by the declaring package, bare in the module's own.  A record of anything but a function
+     makes the name no function reference; a recorded function the module has no signature for is an internal error.
+     Fixes the MAJOR "a generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f`"
+     (decided 2026-11-14, user: "Let's do the proper fix."; no stopgap): 1748 extended to a generic method and a
+     nested generic, 1749 expected-fail only in its four interpreter modes.  Syntax with no record is still read by
+     its spelling and noted under the differential (a bare `__Package` excepted, as `pkg.__Package` is).  The
+     differential's member note now fires only for a member recorded as no package-level symbol -- the 1750 shape,
+     covered by 1750 and the sweep only.  Sweep: object code identical to main's for every conformance program and
+     cmd/bnc except 1748's and 1749's main.o; the differential's only notes are 1750's.
    - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) from their records, and generic
      heads (instantiationHead), which need a record of their own: the generic declaration a head resolves to.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name

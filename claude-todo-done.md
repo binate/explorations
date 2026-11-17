@@ -1,3 +1,15 @@
+### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — DONE (binate `017f68dde`, 2026-11-16, work-6: plan-irgen-checker-types 6-4; landed on "wait 8 minutes, then land"; MAJOR, silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1)
+
+pkg/glib's `.bni` declared `func helper() int` and `func H[T any]() *uint8 { return _func_handle(helper) }`, and
+main declared a `helper` of its own: `glib.H[int]()` was the handle of main's helper (conformance 1748 printed
+`false true`), and `__c_entry(cb)` in a generic body did the same (1749) -- IR-gen lowered a bare operand by its
+written name.  Now the operands of `_func_handle` / `__c_entry`, function references (an identifier or `pkg.F`,
+called or taken as a value) and a package's members `pkg.X` are named from the checker's record of what they resolve
+to: by the declaring package, bare in the module's own.  No stopgap (user, 2026-11-14: "Let's do the proper fix.").
+1748 also covers a generic method and a nested generic (calling another package's generic); 1749 stays expected-fail
+in its four interpreter modes, where the checker rejects `__c_entry`.  Object code is identical to main's for every
+conformance program and cmd/bnc except 1748's and 1749's main.o.
+
 ### bnfmt moved a comment between a struct field's name and its type — DONE (binate `f794ed132`, 2026-11-16, temp-4; user: "Fix them", landed on "wait 8 minutes, then go ahead"; LOW; part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
 
 `b /* c */ int` in a struct printed `b int /* c */`; before a nested struct type the comment went below that struct's

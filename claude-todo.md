@@ -25,22 +25,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   Test: a REPL unit test (or e2e session) importing a forwarder at the prompt and calling, taking as a value and
   reading a constant and a variable through it.
 
-### A generic body's `_func_handle(f)` / `__c_entry(f)` names the instantiating package's `f` -- the wrong function, silently — 🟡 IN PROGRESS (claimed 2026-11-14, work-6: plan-irgen-checker-types 6-4), MAJOR (silent wrong code; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-1; pre-existing, on main at binate `d7f9c914e`)
-
-- **Symptom:** pkg/glib's `.bni` declares `func helper() int` and `func H[T any]() *uint8 { return
-  _func_handle(helper) }`, and main declares a `helper` of its own: `glib.H[int]()` is the handle of main's
-  helper, not glib's -- conformance 1748 prints `false true` (expected `true false`).  `__c_entry(cb)` in a
-  generic body does the same (1749).  Seen with bnc's default (LLVM) backend; IR-gen chooses the name, so the
-  other compiled backends should take the same function (not run).
-- **Cause:** IR-gen lowers a bare operand by its written name, `arg.Name` (gen_builtin.bn's FUNC_HANDLE arm,
-  gen_builtin_ffi.bn's C_ENTRY arm), never qualified with the generic's declaring package (CurrentImportPkg)
-  as funcRefName qualifies a call or a function value.
-- **Fix:** name the function from the checker's record of the operand -- plan-irgen-checker-types stage 6:
-  6-1 records the operand's Symbol with its declaring package, 6-4 makes IR-gen's function references read
-  it.  Decided (2026-11-14, user, asked for a stopgap now -- qualify the bare name as funcRefName does -- or
-  the fix in 6-4: "Let's do the proper fix."): no stopgap.  6-1 landed as binate `84784aa31`.
-- **Tests:** conformance 1748 (`_func_handle`) and 1749 (`__c_entry`), `.xfail.all`.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
