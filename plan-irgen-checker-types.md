@@ -370,6 +370,14 @@ IR-gen cannot map is an internal error, never `int`.
      cmd/bnc except 1748's and 1749's main.o; the differential's only notes are 1750's.
    - 6-5: method expressions `T.M` (methodExprName, the 5d-1 review note (a)) from their records, and generic
      heads (instantiationHead), which need a record of their own: the generic declaration a head resolves to.
+     Method expressions DONE (binate `d6a44b6c3`, 2026-11-17; user: "wait 4 minutes, then go ahead; then continue"):
+     a method expression names the method of the type the checker records for its `T` (recordedMethodExpr; an alias
+     resolved to its target), the record tells it from a method value (namesMethodExpr), and a selector whose base
+     the checker records as a type is no package's member (pkgMemberQualName).  Fixes the MAJOR "a type alias named
+     like a single-segment package names that package's function" (1755, two e2e/repl.sh sessions) and, folded in
+     (user: "Fold it in"), `present(T.M)`'s internal error (genMethodExprValue, 1756).  A `T` with no record is read
+     by its spelling and noted under the differential.  Sweep: object code identical to main's for every conformance
+     program but 1755 and 1756, and for cmd/bnc; the differential's only notes are 1750's.  Generic heads remain.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name
      precedence (moduleNamesInScope, definingPkgType, bareGlobalIdx's rules).  Syntax with no record still
      reads by name until stage 7.

@@ -1,3 +1,41 @@
+### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — DONE (binate `d6a44b6c3`, 2026-11-17, work-6; user: "wait 4 minutes, then go ahead; then continue") MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
+
+- **Symptom:** package `locv` (a single-segment path, like conformance spec/16-packages/013's `locallib`) declares
+  `func Add(a int, b int) int`, and pkg/lfwd's `.bni` is `expose "locv"`.  A main file importing pkg/lfwd declares
+  `type P struct { x int }`, `func (p P) Add(a int, b int) int { return p.x + a + b }` and `type locv = P`, and
+  prints `g(P{x: 1}, 2, 3)` for `var g *func(P, int, int) int = locv.Add`: bnc (LLVM) prints 6131000226 (expected
+  6).  A package that imports locv under another name (`import v "locv"`) and declares `type locv = P` does the
+  same.  The review's probes show other wrong values from bni's run mode (20703084754, 50767855946) and the REPL
+  (23420993730, 18656264522); the bnc value was reproduced.
+- **Cause:** each driver records in IR-gen's import-alias map, under its full path, each package the checker binds
+  no name to -- pkg/builtins/rt, pkg/builtins/lang, an exposed package, an import under another name
+  (cmd/bnc/compile_imports.bn, pkg/binate/interp/imports.bn, pkg/binate/repl/ir_imports.bn); a full path is no
+  identifier unless it is a single segment.  methodExprName (pkg/binate/irgen/gen_bare_name.bn), isImportAliasName's
+  only caller, takes a type alias whose name is in the map for a package, so `locv.Add` is no method expression to
+  it, and funcRefName names locv's Add.
+- **Fix (binate `d6a44b6c3`):** a method expression names the method of the type the checker records for its `T`
+  (recordedMethodExpr: the record mapped to IR-gen's type, an alias resolved to its target), the record tells it
+  from a method value (namesMethodExpr), and a selector whose base the checker records as a type is no package's
+  member (pkgMemberQualName) -- without that, the call (`locv.Mul(...)`) and plain-read (`present(locv.Sub)`) paths
+  still reached a function or variable of the method's name in that package.  A `T` with no record is still read by
+  its spelling (methodExprName) and noted under the value differential.  Tests: conformance 1755 (both shapes: as a
+  value, called, through a variable of the method's name, in generic bodies), two e2e/repl.sh sessions, irgen unit
+  tests.  It is plan-irgen-checker-types 6-5's method-expression half.
+
+### A method expression read as a value with no function-value slot (`present(P.Get)`, `present(Box[int].Get)`) is an internal error in IR-gen — DONE (binate `d6a44b6c3`, 2026-11-17, work-6; user chose "Fold it in" to the method-expressions-from-records commit) MAJOR (an internal error on a valid program; found 2026-11-17, work-6, review of the method-expressions-from-records change; pre-existing: on main at binate `c526c47b0`)
+
+- **Symptom:** with `type P struct { x int }` and `func (p P) Get() int { return p.x }`,
+  `testing.Println(present(P.Get))` panics "internal error: unresolved selector in IR-gen: P.Get (compiler bug)" in
+  every mode; with `type Box[T any] struct { v T }` and a method Get, `present(Box[int].Get)` panics "internal
+  error: unresolved identifier Box in IR-gen".  A method expression is a function value (spec `func.method-expr`),
+  and the checker accepts both.  `cast(*func(P) int, P.Get)`, `var g = P.Get` and `_ = P.Get` work.
+- **Cause:** IR-gen lowers a method expression as a function value only where a function-value slot's type is at
+  hand (genExprOrFuncRef); genExpr's selector arm sends any other one to genSelector, which has no arm for it.
+- **Fix (binate `d6a44b6c3`):** genExpr lowers a method expression with no slot as a function value of its own type,
+  the checker's type of the expression (genMethodExprValue, pkg/binate/irgen/gen_method_value.bn), as
+  genExprOrFuncRef lowers one into a slot.  Test: conformance 1756 (present of a method expression on a struct, a
+  pointer receiver, a named scalar, a generic instance and an alias of one).
+
 ### A generic alias's target error reached through a method signature is reported twice — DONE (binate `32b3bbac6`, 2026-11-17, temp-5; user: "yes, go ahead; then continue") (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
 With pkg/lib's `type KT[U any] = K[@T, U]` (K's V a Tag of U's size, `@T` a Tag[[8]uint8] alone), main's `type D[X
