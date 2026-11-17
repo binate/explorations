@@ -2,8 +2,9 @@
 
 Status: design v3 (section 11) with review 3's amendments (section 12), 2026-11-13 (temp-5).  The user's
 decisions (2026-11-13): Q1 accepted (the remaining difference, documented in step 4); Q2 VRoot normalized.
-Steps 1-3 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14; `534ef01b5`, section 15); step 4's
-spec note landed (docs `d8166c6`, section 16), its expected-fail tests to land (temp-5).
+Steps 1-3 landed (binate `ed737493f`, section 13; `8f0f493e2`, section 14; `534ef01b5`, section 15); step 4
+landed (docs `d8166c6`, binate `447be961f`, section 16).  DONE 2026-11-16; the remaining difference is in
+claude-todo-v2.md.
 
 Todo entry: "Inside a generic's instance, a type argument satisfies a constraint through an impl private to another
 package's `.bn`" (claimed 2026-11-06, temp-5).  Q2 of done/plan-dependent-constraints.md section 8 recommended fixing
@@ -458,7 +459,7 @@ Both come from choosing the impls per instance or site rather than per type, so 
 approved the revised wording (2026-11-16, "go for it"); it landed as docs `d8166c6`, at the end of gen.mono.check.
 Every probe behaves the same on binate main `f794ed132` as on `534ef01b5`.
 
-Expected-fail tests (committed on the work branch, not yet landed): conformance spec/12-generics 230 (the view-root
+Expected-fail tests (binate `447be961f`): conformance spec/12-generics 230 (the view-root
 route: probe A, `Out[@T, int32]` named in lib's `.bn`) and 231 (the `.bn` route: probe G3, a `.bn` method checked for
 an instance named in lib's `.bni`), each `.xfail.all`, with the error positions the checker gives for the same
 programs with `int16`, which no impl serves.
@@ -467,5 +468,5 @@ The review also turned up two diagnostic issues, filed as todo entries: a `.bn` 
 instance again at the method's receiver (a spurious second chain; since step 1, `ed737493f`; claimed), and a
 constraint missed at a generic's declaration is printed with its dependent length as 0 (pre-existing).
 
-Remaining: land the tests; then the v2 entry for the difference (claude-todo-v2.md), the todo entry to the done file,
-and this plan to done/.
+The difference is tracked in claude-todo-v2.md ("Instance checks choose the impls in view per instance, not per
+type"); the todo entry is in the done file.

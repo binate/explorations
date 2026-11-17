@@ -187,3 +187,55 @@ plan's inventory) were left in place. To embed the COMPILER reentrantly (e.g. an
 in-process bnc), thread those through the emit context the same way increments 1–5
 did for the interpreter. Deferred with user sign-off — only if reentrant AOT
 compilation in one process becomes a goal.
+
+## Instance checks choose the impls in view per instance, not per type (type provenance)
+
+**The rule.** Spec `gen.mono.check`: when a deferred construct is checked for an
+instance, a type supplied by the root instantiation's type arguments takes the impls at
+that root; a type written in a generic's own declaration is judged where it is written.
+
+**What the checker does.** It chooses the impls in view per instance and per site
+(done/plan-instance-impl-view.md; binate `ed737493f`, `8f0f493e2`, `534ef01b5`). In a
+chain rooted in a package P, every impl private to P's `.bn` is in view for every type a
+deferred construct judges when:
+- the construct is written in P's `.bn`; or
+- the last instantiation of the chain named in P's `.bn`, the construct's own
+  instantiation, and each instantiation between them have type arguments that mention
+  the named type of such an impl's receiver (for a generic type, any instance of it).
+
+Either way they serve a type the rule judges without them -- one written outside P's
+`.bn`, judged where it is written, or one supplied by a root instantiation written in
+P's `.bni`, judged at that root -- so a program the rule rejects is accepted. It is
+documented as gen.mono.check's implementation note (docs `d8166c6`), and conformance
+spec/12-generics 230 and 231 (binate `447be961f`) pin the rule's outcome, marked
+`.xfail.all`.
+
+**Examples.** lib's `.bni` declares `interface Tag[X any] { tag() int }`, `func In[V
+Tag[[sizeof(X)]uint8], X any](v V) int`, `type T` with `impl @T : Tag[[8]uint8]`; lib's
+`.bn` has a private `impl @T : Tag[[4]uint8]`.
+- (230) lib's `.bni` declares `func Out[V any, X any](v V) int { return In[@T,
+  X](make(T)) }`. `Out[@T, int32]`, named in lib's `.bn`, is accepted: the `@T` Out
+  writes is a Tag[[4]uint8] only through the private impl.
+- (231) lib's `.bni` declares `type W[Q Tag[[8]uint8], Y any] struct { q Q }` and names
+  `W[@T, int32]` in a struct field; lib's `.bn` declares `func (w @W[Q, Y]) m() int {
+  return In[Q, Y](w.q) }`, checked for that instance and accepted though the root
+  supplies `@T` in the `.bni`.
+
+**Why it stays.** The rule needs to know, for each type in a deferred judgment, whether
+the root's arguments supplied it or a declaration wrote it. After substitution the two
+are one interned `types.Type`: `In[@T, X]` with `@T` written, and `In[V, X]` with `V`
+bound to `@T`, are the same instance, and nothing records where each part came from. Two
+earlier designs tried to record it and failed review (done/plan-dependent-constraints.md
+section 9):
+- classifying an argument by its syntax rejected valid programs;
+- marks on the AST were lost on the copies the checker resolves from (constraints,
+  abstract populations, alias targets, receivers).
+
+**What a fix needs.** Each part of a type that a deferred judgment uses needs an origin
+that survives substitution and those copies, so each part is judged in the view it came
+from. Open question: how a judgment on a type with parts of both origins combines their
+views. Once fixed, remove the implementation note and the `.xfail.all` markers of 230
+and 231.
+
+**Severity:** minor. It accepts an invalid program, only where a deferred judgment
+relies on an impl private to the root's package for a type the rule judges without it.

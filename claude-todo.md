@@ -495,25 +495,6 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — 🟡 IN PROGRESS (claimed 2026-11-06, temp-5; plan-instance-impl-view.md steps 1-3 landed, binate `ed737493f`, `8f0f493e2`, `534ef01b5`; step 4's spec note landed, docs `d8166c6`, its expected-fail tests next) (an invalid program accepted; found 2026-11-04, temp-5, review of design C for the dependent-length constraints; reproduced on binate main `b52e54139`; pre-existing)
-
-Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X
-any](t T) int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package
-r3dep's `.bni` declares `type T` with `impl *T : r3lib.Tag[[8]uint8]`, and its `.bn` a private `impl *T :
-r3lib.Tag[[4]uint8]`.  In main, `r3lib.outer[*r3dep.T, int64, int32](&t)` compiles and prints 5 -- `inner[V, X]` is
-satisfied, inside outer's instance, through the private Tag[[4]uint8] impl -- while the direct `r3lib.inner[*r3dep.T,
-int32](&t)` is "type argument *T does not satisfy constraint Tag[[4]uint8]: the matching impl is private to package
-pkg/r3dep".  An instance's check sees every impl (`ImplView.All`, impl_private.bn: `implViewHere` sets All when the
-instance is bound), which assumes each judgment it makes was already made in the right view at the declaration;
-this one was not (the declaration took the two dependent lengths for equal placeholders).  By reading, not probed:
-a run that loads r3dep from its `.bni` alone has no private impl to see, so whether the program is accepted depends
-on what the run checks from source (checking should depend only on a package's sources and its dependencies' `.bni`
-files).  Fix: judge an instance's constraints in the view the spec gives (gen.mono.check: a type a root
-instantiation supplies, with the root's impls; a type written in the generic, with those where it is written), not
-All -- or, at least, never through an impl private to a package other than the generic's and the root's.  Design C
-for the dependent-length constraints (the entry above) widens the judgments made inside instances, so it inherits
-this fix.
-
 ### A constraint miss's note names its probe's instances with no view root, adding two false errors — 🔴 OPEN (minor: misleading diagnostics; found 2026-11-14, temp-5, review of the constraint-judgment view-root fix; pre-existing since binate `ed737493f`)
 
 When a type argument misses a constraint because the impl that would serve it is private to another package, the
@@ -544,7 +525,7 @@ V }`, `type KT[U any] = K[@T, U]` and a `T` that is a Tag[[8]uint8]; nothing is 
 - No instance: main declares the same G, `func (g *G[U]) m(k *lib.KT[U]) int { return 0 }`, and after it `var g2
   G[int16]`: the miss is reported with no "(in G[int16], ...)" context, which `lib.K[@lib.T, U]` written in m's
   signature gets.
-Since step 3 of plan-instance-impl-view.md, a miss through a private impl reaches the same paths.  Fix: unknown --
+Since step 3 of done/plan-instance-impl-view.md, a miss through a private impl reaches the same paths.  Fix: unknown --
 find where a derivation's report in an alias target loses the instance naming (instanceNamingFor /
 pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
 derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.

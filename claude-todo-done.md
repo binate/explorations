@@ -1,3 +1,28 @@
+### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — DONE (binate `ed737493f`, `8f0f493e2`, `534ef01b5`, `447be961f`, docs `d8166c6`, 2026-11-16, temp-5; done/plan-instance-impl-view.md; the remaining difference accepted by the user, 2026-11-13, and deferred to claude-todo-v2.md; the spec note's wording approved with "go for it", the tests landed on "wait 4 minutes, then go ahead")
+
+Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X any](t T)
+int` and `func outer[V Tag[[sizeof(U)]uint8], U any, X any](v V) int { return inner[V, X](v) }`; package r3dep's
+`.bni` declares `type T` with `impl *T : r3lib.Tag[[8]uint8]`, and its `.bn` a private `impl *T :
+r3lib.Tag[[4]uint8]`. In main, `r3lib.outer[*r3dep.T, int64, int32](&t)` compiled and printed 5 -- `inner[V, X]` was
+satisfied, inside outer's instance, through the private Tag[[4]uint8] impl -- while the direct `r3lib.inner[*r3dep.T,
+int32](&t)` was rejected: an instance's check saw every impl (`ImplView.All`).
+
+An instance's judgments now see the public impls, the generic's own package's private impls when it is declared in a
+`.bn`, and those of its view root: the package whose `.bn` names the instance, or the root carried from the instance
+it is named in, kept only while the type arguments mention the named type of one of that package's private impls'
+receivers (binate `ed737493f`; conformance spec/12-generics 214-217, main's program rejected in 215). Interface
+instances got per-class checks (`8f0f493e2`; 222-225), and what is resolved for a use -- an alias's target, a call's
+constraint binding -- is judged in the use's class, with method copies made outside builds for identity only
+(`534ef01b5`; 227-229).
+
+What remains is accepted and documented: the checker chooses the impls in view per instance and site, not per type as
+gen.mono.check does, so a type a generic writes, or one a root in the package's `.bni` supplies, can be served by the
+root package's private impls. Spec gen.mono.check's implementation note (docs `d8166c6`) says so; conformance
+spec/12-generics 230 and 231 (binate `447be961f`, `.xfail.all`) pin the rule's outcome; the fix (type provenance) is
+in claude-todo-v2.md. Found on the way, in claude-todo.md: a `.bn` method's instance check names its instance again at
+its receiver (since `ed737493f`; claimed), a constraint missed at a declaration printed with its dependent length as
+0, and a miss's note probe naming its instances with no view root.
+
 ### Spec: an annotation block and its entries' arguments take a trailing comma — DONE (docs `447f264`, binate `069c8defe`, 2026-11-16, temp-4; user: "Spec allows it (Recommended)", landed on "yes, go ahead"; LOW; found 2026-11-16, temp-4, working on bnfmt's annotation comments)
 
 The parser accepted a trailing comma in an annotation block (`#[a, b,` with the `]` on the next line) and in an
