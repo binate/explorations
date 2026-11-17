@@ -2880,7 +2880,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt leaves an empty line where it drops an empty annotation block — 🔴 OPEN 🟢 LOW (noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header"; split out 2026-11-16)
+### bnfmt leaves an empty line where it drops an empty annotation block — 🟡 IN PROGRESS (claimed 2026-11-16, temp-4; user: "yes") 🟢 LOW (noted 2026-10-18, temp-4, with "bnfmt moves a comment inside a declaration's header"; split out 2026-11-16)
 
 bnfmt drops an empty annotation block `#[]` on purpose (it carries no meaning, spec pkg.annotation), but leaves an
 empty line in its place, so a doc comment above it no longer touches its declaration: `// doc` / `#[]` / `func f()
