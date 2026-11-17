@@ -2882,13 +2882,29 @@ has the same gap.
 
 ### bnfmt moves a comment inside a declaration's header — 🟡 IN PROGRESS (claimed 2026-11-14, temp-4; user: "Fix them") 🟢 LOW (found 2026-10-18, temp-4, review of the import-section fix; pre-existing)
 
-A comment after the `]` of an annotation block that spans lines goes below the block.  The output is valid and
-idempotent, but the comment moves.  The AST records no position for an annotation block's `]`, which placing that
-comment needs.  Every other comment inside a declaration's header prints in place (a function's, a var's, a const's,
-a type declaration's, an interface declaration's, an impl's and the package clause's, checked 2026-11-15 on binate
+Comments in and after an annotation block move (checked 2026-11-16 on binate `f794ed132`): a block comment anywhere
+inside the block (after the `#`, between entries, in an entry's arguments, before the `]`) goes after the `]`, and a
+line comment there goes below the block; a comment after a `]` on a later line than the last entry's start goes below
+the block; and for an import, any comment after the `]` goes below it (`#[build] // c` / `import "pkg/x"`; the import
+printer, printImportEntry, prints the block without comments).  Each output is valid and idempotent, but the comments
+move.  The block's `[` and `]` and each entry's `(` and `)` are in the file's bracket pairs (File.Brackets), found
+from the `#`, so no new AST position is needed.  Decided 2026-11-16 (user: "Like a call's args (Recommended)"):
+bnfmt prints a block as it prints a call's arguments -- a block the source wrapped stays wrapped (fill style), and one
+past 100 columns wraps -- with its comments where a call's go; today it joins every block onto one line, with no
+width limit (no block in the tree changes: all 155 are on one line, the longest 94 columns, none with a comment).
+Every other comment inside a declaration's header prints in place (a function's, a var's, a const's, a type
+declaration's, an interface declaration's, an impl's and the package clause's, checked 2026-11-15 on binate
 `dd25dd2c0`; a struct field's since `f794ed132`).  Related: an empty annotation block `#[]`, which bnfmt drops on
 purpose, leaves an empty line in its place, so a doc comment above it no longer touches its declaration
 (conformance/spec/16-packages/071_annotation_degenerate.bn).
+
+### Spec: an annotation block and its entries' arguments take a trailing comma — 🟡 IN PROGRESS (claimed 2026-11-16, temp-4; user: "Spec allows it (Recommended)") 🟢 LOW (found 2026-11-16, temp-4, working on bnfmt's annotation comments)
+
+The parser accepts a trailing comma in an annotation block (`#[a, b,` with the `]` on the next line) and in an
+entry's arguments (`build(x,)`), but the grammar (docs/spec/binate.ebnf `Annotation`, `AnnotationEntry`) has neither,
+and its note on trailing commas lists arguments, parameters, type lists and composite elements only.  Decided
+2026-11-16: the spec allows them -- the note covers annotation blocks and entries' arguments too -- and a conformance
+test pins both.
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
