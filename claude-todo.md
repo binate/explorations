@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### At the REPL, an `import` of a forwarder typed at the prompt registers none of the exposed packages' functions, constants or variables: the next use through it is an internal error — 🔴 OPEN, MAJOR (a valid session fails with an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-4; pre-existing: a bni built before 6-4 fails the same way)
+### At the REPL, an `import` of a forwarder typed at the prompt registers none of the exposed packages' functions, constants or variables: the next use through it is an internal error — 🟡 IN PROGRESS (claimed 2026-11-16, work-6), MAJOR (a valid session fails with an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-4; pre-existing: a bni built before 6-4 fails the same way)
 
 - **Symptom:** pkg/fwd's `.bni` is `expose "pkg/glib"`, and pkg/glib declares `func HelperHandle() *uint8` and
   `func RH() *uint8`.  A session rooted at a file that imports only pkg/builtins/testing (`bni -repl main.bn`)
