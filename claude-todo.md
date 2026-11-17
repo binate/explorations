@@ -542,15 +542,6 @@ find where a derivation's report in an alias target loses the instance naming (i
 pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
 derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
 
-### A constraint missed at a generic's declaration is reported with its dependent length as 0 — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: a misleading diagnostic; found 2026-11-16, temp-5, review of the instance-impl-view spec note; reproduced on binate main `f794ed132`; pre-existing, also before `ed737493f`)
-
-pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
-return v.tag() }`, `type T struct { n int }` (no impl) and `func Out[X any]() int { return In[@T, X](make(T)) }`. The
-declaration's check rejects the call, rightly (no length makes @T a Tag), as "type argument @T does not satisfy
-constraint Tag[[0]uint8]": the constraint is Tag[[sizeof(X)]uint8], and 0 is that length with X abstract.  Fix: report
-the constraint as written where a length depends on a type parameter -- find where the declaration's judgment formats
-the constraint it substituted.  Test: the repro as a check unit test pinning the message.
-
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
@@ -559,8 +550,8 @@ messages, each for a type written with a dependent length: "cannot assign *G1[[8
 p *G1[[sizeof(U)]uint8] = q` (TestIdentityStillRejectedAtDeclaration; TestDependentIdentityReadonlyStillRejected
 too), "type argument *readonly R[[0]uint8] does not satisfy constraint Eq[[8]uint8]" for `*readonly
 R[[sizeof(U)]uint8]` (TestDependentConstraintReadonlyReceiverStillRejected), and "type Box does not implement
-Eq[[0]uint16]" for `impl *Box[K] : Eq[[sizeof(K)]uint16]` (TestDependentImplCoverage). The constraint of a miss at a
-generic's declaration, which its declaration writes, is the in-progress entry above.
+Eq[[0]uint16]" for `impl *Box[K] : Eq[[sizeof(K)]uint16]` (TestDependentImplCoverage). A constraint missed at a
+generic's declaration is named as the declaration writes it, with the generic's name (binate `2662d1207`).
 
 Why it needs a decision: identity does not compare dependent lengths (types_identical_walk.bn), so the generic
 instances formed from such types are one per placeholder, named when the first is formed (mangleInstantiatedName). A

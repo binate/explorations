@@ -1,3 +1,23 @@
+### A constraint missed at a generic's declaration is reported with its dependent length as 0 — DONE (binate `2662d1207`, 2026-11-16, temp-5; user: "wait 7 minutes, then go ahead")
+
+pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
+return v.tag() }`, `type T struct { n int }` (no impl) and `func Out[X any]() int { return In[@T, X](make(T)) }`.
+The declaration's check rejects the call, rightly (no length makes @T a Tag), and reported "type argument @T does
+not satisfy constraint Tag[[0]uint8]": 0 is the placeholder of a length that depends on a type parameter
+(types.Type.ArrayLenDependent).
+
+Fix (binate `2662d1207`): such a miss names the constraint as the generic's declaration writes it, with the
+generic's name, qualified by its package's when another package declares it: "constraint Tag[[sizeof(X)]uint8] of
+In" (constraintDisplayName and its printer, check/check_written_type.bn). The label is needed because the text's
+names are the generic's and the miss is reported at the use, where they can name other things: a review of the first
+version, which printed the text alone, found callers whose X, K or B were their own. The printer writes the type and
+constant expressions a length can hold as written (an unsafe_index the check rewrites into an index included); a
+form it does not write keeps the substituted name. Tests: check_written_type_test.bn; check_dependent_test.bn,
+check_self_instance_test.bn and conformance spec/12-generics 202 now pin the written form.
+
+Not done here, as it needs a decision: other diagnostics still print a dependent length as 0 (claude-todo.md,
+"Diagnostics print an array length that depends on a type parameter as 0").
+
 ### bnfmt moved a comment in or after an annotation block — DONE (binate `0dbf1de7d`, 2026-11-16, temp-4; user: "Fix them", layout "Exactly as a call (Recommended)", landed on "wait 3 minutes, then go ahead"; LOW; the last part of "bnfmt moves a comment inside a declaration's header", found 2026-10-18, temp-4)
 
 bnfmt printed every annotation block on one line from its entries' names and arguments: a block comment anywhere in
