@@ -1,3 +1,22 @@
+### A constraint miss's note names its probe's instances with no view root, adding two false errors — DONE (binate `3e67f3899`, test `d839dbae8`, 2026-11-16, temp-5; the test landed on "wait 3 minutes, then go ahead")
+
+When a type argument missed a constraint because the impl that would serve it is private to another package, the
+note's probe (`constraintImplNote` / `hiddenImplPkg`, check/impl_private.bn) resolved that impl for the argument
+(`implInstance`), and the impl's receiver, resolved in the impl's own .bn, named the instance there anew. Repro:
+pkg/lib's .bni declares `interface Hasher2[K any]`, `type Default[K lang.Hashable] struct {}` with a `Hash` method,
+and `type Table5[K any, H Hasher2[K]]`; lib's .bn alone declares `impl Default[K] : Hasher2[K]`; q's .bn makes a
+`key` lang.Hashable only there and uses `lib.Table5[key, lib.Default[key]]`. Besides the right error ("type argument
+Default[key] does not satisfy constraint Hasher2[key]: the matching impl is private to package pkg/lib"), two false
+misses of Hashable followed, "(in Default[key].Hash, ...)" and "(in the impl for Default[key], ...)", instantiated
+at lib's impl.
+
+Fixed by binate `3e67f3899` (a method's or impl's receiver names no instance anew), which covered the probe's path:
+with it, the repro in all three shapes the entry listed (a package-level variable's type, a local's, a generic
+function's type argument) reports only the right error, where a compiler built before it reports both false ones.
+Test: check's TestPrivateImplNoteProbeNamesNoInstance (impl_private_test.bn, binate `d839dbae8`), the three shapes
+each reporting exactly the one error, with lib's interface D in place of lang.Hashable; it fails with 3e67f3899's
+source reverted.
+
 ### At the REPL, an `import` of a forwarder typed at the prompt registers none of the exposed packages' functions, constants or variables: the next use through it is an internal error — DONE (binate `389fc0956`, 2026-11-16, work-6; user: "wait 11 minutes, then go ahead"; MAJOR, a valid session failed with an internal error; found 2026-11-14, work-6, review of plan-irgen-checker-types 6-4)
 
 pkg/fwd's `.bni` was `expose "pkg/glib"`; a session rooted at a file importing only pkg/builtins/testing took
