@@ -542,7 +542,7 @@ find where a derivation's report in an alias target loses the instance naming (i
 pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
 derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
 
-### A constraint missed at a generic's declaration is reported with its dependent length as 0 — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-16, temp-5, review of the instance-impl-view spec note; reproduced on binate main `f794ed132`; pre-existing, also before `ed737493f`)
+### A constraint missed at a generic's declaration is reported with its dependent length as 0 — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: a misleading diagnostic; found 2026-11-16, temp-5, review of the instance-impl-view spec note; reproduced on binate main `f794ed132`; pre-existing, also before `ed737493f`)
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
 return v.tag() }`, `type T struct { n int }` (no impl) and `func Out[X any]() int { return In[@T, X](make(T)) }`. The
