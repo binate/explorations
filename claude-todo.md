@@ -2846,6 +2846,12 @@ every instruction, binate `8b1b4f48c`), no wrong code: bnld rejects R_X86_64_GOT
 REX_GOTPCRELX at any opcode but a MOV load (`pkg/binate/link/relocate_x64.bn`), so an object using the newly taken
 forms fails to link with `--linker bnld` (the bnld stages); and an absolute symbol before `@GOTPCREL` (`x = 5`, then
 `mov eax, [rip + x@GOTPCREL]`) is rejected ("@GOTPCREL takes a symbol") where clang relocates against it.
+Found 2026-11-16 (review of plan-asm-x64-isa.md stage 1i, BMI / TBM / ADX / MOVBE / CRC32), no wrong code: a
+RIP-relative operand with no symbol (`[rip]`, `mov eax, [rip + 0x40]`, `lea rax, [rip - 8]`; clang `8b 05 40 00 00
+00`) is rejected ("rip-relative operand needs a symbol"), and so are `@PLT` / `@GOT` in a memory operand (`mov eax,
+[x@PLT]` and `[x@GOT]`, clang's absolute [disp32] with R_X86_64_PLT32 / GOT32; `mov rax, [rip + x@GOT]`, clang's
+R_X86_64_GOTPC32).  The `#` comment above matters past hand-written source: clang's own x86-64 `-S` output writes
+them (`# %bb.0:`, `# @f`).
 
 ## bnld (self-hosted linker)
 
