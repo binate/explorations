@@ -563,6 +563,27 @@ constraint Tag[[0]uint8]": the constraint is Tag[[sizeof(X)]uint8], and 0 is tha
 the constraint as written where a length depends on a type parameter -- find where the declaration's judgment formats
 the constraint it substituted.  Test: the repro as a check unit test pinning the message.
 
+### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
+
+In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
+(types.Type.ArrayLenDependent), and a type's name prints that 0 (types/type_name.bn). check's unit tests pin such
+messages, each for a type written with a dependent length: "cannot assign *G1[[8]uint16] to *G1[[0]uint8]" for `var
+p *G1[[sizeof(U)]uint8] = q` (TestIdentityStillRejectedAtDeclaration; TestDependentIdentityReadonlyStillRejected
+too), "type argument *readonly R[[0]uint8] does not satisfy constraint Eq[[8]uint8]" for `*readonly
+R[[sizeof(U)]uint8]` (TestDependentConstraintReadonlyReceiverStillRejected), and "type Box does not implement
+Eq[[0]uint16]" for `impl *Box[K] : Eq[[sizeof(K)]uint16]` (TestDependentImplCoverage). The constraint of a miss at a
+generic's declaration, which its declaration writes, is the in-progress entry above.
+
+Why it needs a decision: identity does not compare dependent lengths (types_identical_walk.bn), so the generic
+instances formed from such types are one per placeholder, named when the first is formed (mangleInstantiatedName). A
+length's written text recorded on the array type would print correctly for a bare array, but a shared instance's
+name would show the first instance's text in every message about the others. Options: (a) record the written text on
+the array type and print it, accepting that a shared instance shows the first one's text (identity cannot compare
+the text: an implementing method's dependent array matches its interface's only because identity does not compare
+it, check_subst_walk.bn buildSubstOver); (b) print a dependent length as a mark that says it depends on type
+parameters (e.g. `[?]uint8`, which is not Binate syntax); (c) keep the 0. Test: the pinned messages, in the form
+chosen.
+
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
 `type A[T any] = struct { a [sizeof(N)]uint8; t T }` with `type N struct { v int64; w int64; p *A[int] }` is
