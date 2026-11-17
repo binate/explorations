@@ -26,6 +26,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   alias map.  Tests: a conformance test of both shapes (a forwarder's exposed package, an import under another name)
   and an e2e/repl.sh session.
 
+### A method expression read as a value with no function-value slot (`present(P.Get)`, `present(Box[int].Get)`) is an internal error in IR-gen — 🔴 OPEN, MAJOR (an internal error on a valid program; found 2026-11-17, work-6, review of the method-expressions-from-records change; pre-existing: on main at binate `c526c47b0`)
+
+- **Symptom:** with `type P struct { x int }` and `func (p P) Get() int { return p.x }`,
+  `testing.Println(present(P.Get))` panics "internal error: unresolved selector in IR-gen: P.Get (compiler bug)" in
+  every mode; with `type Box[T any] struct { v T }` and a method Get, `present(Box[int].Get)` panics "internal
+  error: unresolved identifier Box in IR-gen".  A method expression is a function value (spec `func.method-expr`),
+  and the checker accepts both.  `cast(*func(P) int, P.Get)`, `var g = P.Get` and `_ = P.Get` work.
+- **Cause:** IR-gen lowers a method expression as a function value only where a function-value slot's type is at
+  hand (genExprOrFuncRef); genExpr's selector arm sends any other one to genSelector, which has no arm for it.
+- **Fix:** genExpr lowers a method expression with no slot as a function value of its own type, `*func(recv, args…)
+  results` (the checker's type of the expression), as it already lowers a generic function's instantiation with none
+  (`_ = Ident[int]`).  Test: a conformance test of both shapes.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
