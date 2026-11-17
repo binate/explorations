@@ -77,7 +77,7 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
 3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`).
 4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers;
-   and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-14, below).
+   and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-16, below).
 5. **EVEX: AVX-512** (`asm/x64/avx512`): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
    the compressed disp8*N, the 32 vector registers.
 6. **APX and AMX**: r16-r31 (REX2), the EVEX-promoted general-purpose forms (new data destination, no-flags),
@@ -115,7 +115,7 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   (Mach-O UNSIGNED of 1 / 2 bytes), as `mov al / ax, offset x` already are — a symbol defined elsewhere as an
   absolute constant is meaningful there.  Lifts plan-tls.md 3d2's deliberate reject of a symbol as an INT vector
   or RET's stack release.
-- XOP (user, 2026-11-14: "TBM in 1i, rest in 4 (Recommended)"): AMD's XOP-encoded instructions (prefix 8F), which
+- XOP (user, 2026-11-16: "TBM in 1i, rest in 4 (Recommended)"): AMD's XOP-encoded instructions (prefix 8F), which
   clang takes and no stage had covered — TBM's general-purpose ones in 1i beside BMI, XOP's vector instructions
   and FMA4 in stage 4 beside AVX / FMA.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
