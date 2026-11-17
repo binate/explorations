@@ -123,10 +123,17 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   clang (R_X86_64_8; Mach-O UNSIGNED of 1 byte), as rorx's count and TBM bextr's control do; in the 1i commit.
   Lifts plan-tls.md 3d2's last deliberate reject of a symbol in an immediate (the INT / RET one went in 1g2).
 - `xacquire` / `xrelease` (user, 2026-11-16: "As GNU as (Recommended)"): with an instruction on the line, they need
-  a lock-prefixed lockable instruction or an xchg with memory, and `xrelease` alone also a mov to memory, else an
-  error, as GNU as ("missing `lock' with `xacquire'", "invalid instruction `movbe' after `xacquire'"); clang emits
-  F2 / F3 before anything, which can turn the instruction into another (`xacquire movbe` is crc32, `xrelease bsf`
-  tzcnt).  In the 1i commit.
+  a lock-prefixed lockable instruction (not cmpxchg16b, as GNU as) or an xchg, and `xrelease` alone also a mov to
+  memory (not the moffs form, A2 / A3, which the SDM leaves out), else an error, as GNU as ("missing `lock' with
+  `xacquire'", "invalid instruction `movbe' after `xacquire'"); clang emits F2 / F3 before anything, which can turn
+  the instruction into another (`xacquire movbe` is crc32, `xrelease bsf` tzcnt).  In the 1i commit.  The
+  question said GNU as takes only an xchg with memory; it goes by encoding (86 / 87 taken, registers too; the
+  accumulator form 90+r rejected).  Asked again (user, 2026-11-16: "Memory only (Recommended)"): an xchg with a
+  memory operand, the SDM's pairing.
+- A lock, repeat prefix or lock-elision hint with prefixes alone after it on its line (`lock fs`, `rep fs`,
+  `xacquire lock`, `xacquire fs`) is an error (user, 2026-11-16: "Reject, as GNU as (Recommended)"); clang emits the
+  bytes, and 1e took `lock fs` as F0 64.  Prefixes between a hint and its instruction stay (`xacquire fs lock add
+  ...`, as GNU as).  In the 1i commit.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
