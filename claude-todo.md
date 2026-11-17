@@ -498,7 +498,7 @@ argsMentionTypeParam, the predicate used, also sees a dependent length inside an
 each shape above, in both orders.  The alias-target level fix (the entry below) waits for this: judged at the use's
 level, `KT[U]` in J's method drops J[R, int8]'s miss the same way.
 
-### Whether a program is accepted depends on where a generic's method is declared, beside an instance abstract only through `Self` — 🔴 OPEN (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
+### Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a signature — 🔴 OPEN (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
 
 With K and `@T` as in the entry above, `type G2[S any, U any] struct { u U }`, `interface I[U any] { m(g G2[Self, U])
 int }`, `func use(i *I[int32]) {}` and `func (g *G2[S, U]) f(k *K[@T, U]) int { return 0 }`, the program is accepted;
@@ -509,6 +509,11 @@ instance (a method copied on later is resolved without reporting, and an instanc
 instance check); not verified.  Which order is right -- whether such an instance's method signatures are checked -- is
 the first thing to settle, from the spec (gen.mono): every implementer of I[int32] reaches G2[R, int32].f, whose miss
 is reported there.  Test: both orders as unit tests, agreeing.
+
+Not only through `Self` (found 2026-11-17, temp-5, review of the specialization fix): with `type G2[S any, U any]
+struct { s S }`, `func f[X any](g *G2[X, int32]) int { return 0 }` and then `func (g *G2[S, U]) n(k *K[@T, U]) int {
+return 0 }`, the program is accepted; with n declared before f, or G2[X, int32] formed in f's body instead, it is
+rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at n's K.
 
 ### A generic alias's target error reached through a method signature is reported twice — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: diagnostics; found 2026-11-14, temp-5, review of instance-impl-view step 3; reproduced on binate main `8f0f493e2`; pre-existing)
 
