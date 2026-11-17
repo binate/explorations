@@ -436,8 +436,19 @@ recursive, so far more than 75).
   registry are vecs with indexes.  cmd/bnc's IR and 2,105 corpus programs identical, 526 of them with -g too.  Left:
   clang itself crashes on the -g debug info of a 20,000-struct ring (claude-todo LOW); a 1024-level array of
   managed-slices takes clang 81 s (IRTranslator on deep SSA aggregates; fix proposed, not decided).
-  Next: irutil's dtorTypeSuffixRec (recurses per ring link in IR-gen, every back end), the VM's two cross-mode walks
-  (collectIfaceVtOffsets, holdsIfaceValue), then lint.
+- Stage irutil / IR-gen helpers DONE: binate `03e51c232` (irutil) and `b256939f2` (irgen), landed 2026-11-16 (user:
+  "yes, go ahead").  Helper names (DtorTypeSuffix) are written by a loop (irutil/dtor_suffix.bn): named links peeled,
+  element kinds followed, an anonymous struct's fields from frames; a nested named type is written by name (its chain's
+  last link) when its underlying's own expression names a named type with a definition (the ring-naming decision),
+  replacing the reaches-itself walk -- nothing in the tree renamed (cmd/bnc and 2,810 corpus programs' IR identical, 702
+  with -g).  IR-gen's ensureMsDtor / ensureMpDtor / ensureArrayDtor (a call per element, crossing into a named type's
+  definition: a 20,000 ring overflowed the stack) run from a work list (ensureDtorHelpers), same helpers in the same
+  order; the generated names are a set (helperNames).  2,000 chain / ring: 31 s / 48 s -> 1.6 s / 0.5 s; a 20,000 ring
+  of named managed-slices compiles and runs (LLVM 9 s, native aa64 35 s, VM 6.5 s); a 20,000 chain ~180 s, the
+  checker's.  Review: no defect; stale comments fixed; irbuild's pending helper lists and codegen's funcRetTypes found
+  quadratic (added to the LOW "Checking is quadratic in a package's number of declarations" entry).
+  Next: the VM's two cross-mode walks (collectIfaceVtOffsets, holdsIfaceValue: peel with types.StripWrappers), then
+  lint.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
