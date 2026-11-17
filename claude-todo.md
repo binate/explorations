@@ -2211,7 +2211,7 @@ covered by the single-VM and native lanes). Open:
 
 ## Standard library — pkg/std namespace migration
 
-### Finish the containers move: the examples repo, then delete the flat forwarders — 🔴 OPEN (the examples repo can now bump to bnc-0.0.17, which bundles pkg/std/containers)
+### Finish the containers move: the examples repo, then delete the flat forwarders — 🟡 IN PROGRESS on deleting the forwarders (claimed 2026-11-16, work-3; user: "I guess you can take on step 3 if everything is ready"; the examples repo moved in its `789144e`)
 
 The seven containers live at `pkg/std/containers/{vec,iter,table,mapfn,set,setfn,hashmap}`
 (binate `083146cf1`); `expose` forwarders at the old flat `pkg/std/<name>` paths keep the rest
