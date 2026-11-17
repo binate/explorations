@@ -58,7 +58,7 @@ conformance 1754_variadic_native_through_func_value (packed and spread), `.xfail
   the checker's records) removes the reliance on the alias map for a method expression in any embedding.  Test: both
   sessions above as e2e/repl.sh cases.
 
-### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
+### A method expression on a type alias named like a single-segment package path IR-gen's alias map holds but the checker binds no name to (`type locv = P; locv.Add`) names that package's function -- the wrong function, silently, in every driver — 🟡 IN PROGRESS (claimed 2026-11-16, work-6; user chose "Fix it via 6-5, next"), MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL full-path alias fix; pre-existing: on main at binate `389fc0956`)
 
 - **Symptom:** package `locv` (a single-segment path, like conformance spec/16-packages/013's `locallib`) declares
   `func Add(a int, b int) int`, and pkg/lfwd's `.bni` is `expose "locv"`.  A main file importing pkg/lfwd declares
