@@ -1,3 +1,14 @@
+### Split pkg/binate/format's tests across the single-VM shards — DONE (binate `6402fea01`, 2026-11-16, work-3; confirmed on CI 2026-11-17)
+
+(claimed 2026-11-16, work-3; user: "yes, go ahead and take on splitting format's tests") **split
+  pkg/binate/format's tests across the single-VM shards.**  Unit run at binate `c5dd1c911` (2026-11-16): format's 475
+  tests take ~1240 s under the single VM, all on shard 4/6, so builder-comp-int 4/6 and builder-comp-comp-int 4/6 hit
+  their 30-min cap after it (format itself passes).  Fix: a pkg-binate-format.split.vm marker, as check has.
+  Landed: binate `6402fea01` (a sixth of the tests, 79, ran in 56 s locally on the single VM).  Open: confirm on CI's
+  next unit run that no single-VM shard times out.
+Confirmed: the two unit runs since (binate `c526c47b0`, `f40e10c62`) passed in full; every single-VM shard took
+9.8-20.5 min (shard 4: 13.4-20.4 min), inside the 30-min cap.
+
 ### Two misses of one generic in an alias's target count as one, and an instance's is dropped — DONE (binate `4368f116d`, 2026-11-17, temp-5; user: "wait 16 minutes, then go ahead") (minor: a real error dropped, the program still rejected; found 2026-11-16, temp-5, review of the alias-target naming fix; pre-existing)
 
 `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, with `@T` a Tag[[8]uint8] alone, `type Pair[A any, B any]
