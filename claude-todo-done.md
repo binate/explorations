@@ -1,3 +1,25 @@
+### A `.bn` method's instance check names its instance again at the method's receiver, giving a miss a spurious second chain — DONE (binate `3e67f3899`, 2026-11-16, temp-5; user: "yes, go ahead")
+
+pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
+return v.tag() }`, a type T with `impl @T : Tag[[8]uint8]`, `type W2[Q Tag[[8]uint8], Y any] struct { q Q }` and
+`type Holder struct { w2 @W2[@T, int16] }`; lib's .bn declares a private `impl @T : Tag[[4]uint8]` and `func (w
+@W2[Q, Y]) m() int { return In[Q, Y](w.q) }`. The miss in m was reported with a second chain, "instantiated at
+lib/lib.bn:7:12" -- m's own receiver (since binate `ed737493f`).
+
+Cause: resolving a method's or impl's receiver for an instance (resolveReceiverWithBinders) reached the instance's
+cache entry in instantiateGenericDeclWithArgs, which called requeueInstanceCheck at the receiver. In lib's .bn the
+private impl serves @T, so that naming took lib as its view root and made a second check class, which checked m
+again and reported its miss with the receiver as an extra chain. An impl's receiver did the same, in the instance's
+own impl checks and in a conversion's satisfaction probe in another package (implInstance). The second class could
+only see more impls than the first, so it changed no outcome.
+
+Fix (binate `3e67f3899`): Generics.NamingReceiver is set while a receiver is resolved, and the first instantiation
+the resolution reaches takes it: that instance is neither queued again nor noted as named at the receiver. Instances
+named deeper, and one not yet built, are queued as before. Where a real naming in the .bn makes the second class,
+the chain now points at that naming. Tests: check's TestViewRootReceiverNamesNoInstance,
+TestViewRootImplReceiverNamesNoInstance, TestViewRootReceiverChainAtNaming and
+TestViewRootProbedImplReceiverNamesNoInstance (impl_view_root_test.bn).
+
 ### Inside a generic's instance, a type argument satisfies a constraint through an impl private to another package's `.bn` — DONE (binate `ed737493f`, `8f0f493e2`, `534ef01b5`, `447be961f`, docs `d8166c6`, 2026-11-16, temp-5; done/plan-instance-impl-view.md; the remaining difference accepted by the user, 2026-11-13, and deferred to claude-todo-v2.md; the spec note's wording approved with "go for it", the tests landed on "wait 4 minutes, then go ahead")
 
 Package r3lib's `.bni` declares `interface Tag[T any] { tag() int }`, `func inner[T Tag[[sizeof(X)]uint8], X any](t T)

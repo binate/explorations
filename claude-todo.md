@@ -542,21 +542,6 @@ find where a derivation's report in an alias target loses the instance naming (i
 pushInstanceNaming around the target's resolution in a build), and why the field's check reports both from the
 derivation and from D's own check.  Test: each repro as a unit test pinning one error with its context.
 
-### A `.bn` method's instance check names its instance again at the method's receiver, giving a miss a spurious second chain — 🟡 IN PROGRESS (claimed 2026-11-16, temp-5) (minor: a misleading diagnostic and a duplicate check; found 2026-11-16, temp-5, review of the instance-impl-view spec note; reproduced on binate main `f794ed132`; since `ed737493f`, not before it)
-
-pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
-return v.tag() }`, `type T struct { n int }` with `func (t @T) tag() int` and `impl @T : Tag[[8]uint8]`, `type W2[Q
-Tag[[8]uint8], Y any] struct { q Q }` and `type Holder struct { w2 @W2[@T, int16] }`; lib's .bn defines tag and
-declares `impl @T : Tag[[4]uint8]` and `func (w @W2[Q, Y]) m() int { return In[Q, Y](w.q) }`. The miss in m (nothing
-is a Tag[[2]uint8]) is reported as "type argument @T does not satisfy constraint Tag[[2]uint8] (in W2[@T, int16].m,
-instantiated at lib.bni:15:28; in W2[@T, int16].m, instantiated at lib/lib.bn:7:12)" -- 7:12 is m's own receiver.
-Without the private impl, or with a compiler built before binate `ed737493f`, only the first chain is reported.
-Unverified guess at the cause: resolving m's receiver for the instance, in lib's .bn, names W2[@T, int16] there, where
-lib's private impl serves @T, so that naming takes lib as its view root and makes a second check class whose site is
-the receiver.  The class changes no outcome (what m writes in lib's .bn sees lib's private impls anyway), but it
-checks m again and adds the chain.  Fix: a method's receiver, resolved for an instance's check, does not name the
-instance anew (or names it in the class being checked). Test: the repro as a check unit test pinning one chain.
-
 ### A constraint missed at a generic's declaration is reported with its dependent length as 0 — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-16, temp-5, review of the instance-impl-view spec note; reproduced on binate main `f794ed132`; pre-existing, also before `ed737493f`)
 
 pkg/lib's .bni declares `interface Tag[X any] { tag() int }`, `func In[V Tag[[sizeof(X)]uint8], X any](v V) int {
