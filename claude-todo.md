@@ -2809,18 +2809,18 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves a comment between an import's annotation block and its `import` keyword — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "yes") 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
+### bnfmt drops the blank lines among the comments between an import's annotation block and `import` — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "yes") 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
 
-A comment after an import's annotation block on the `import` line goes after the keyword: `#[x] /* c */ import "b"`
-prints `#[x]` / `import /* c */ "b"`, and so does an empty block (`#[] /* c */ import "b"` prints `import /* c */
-"b"`) and a block after a `;` (`import "a"; #[x] /* c */ import "b"`); a declaration's goes on a line of its own
-above its keyword (`#[x]` / `/* c */` / `func f() {}`).  And a blank line among the comments between an import's
-block and its keyword is dropped: `#[x]` / `// e` / an empty line / `// f` / `import "g"` prints `// e` / `// f`
-together, with an empty block too, where a declaration keeps it and an import with no block keeps it (checked
-2026-11-16 on binate `576087170`).  Root cause not traced; the import printer places these comments
-(print_imports.bn: takeImportEntry classifies an import's comments, importAnnotations renders its block).  Fix:
-place them as a declaration's are, on lines of their own above the keyword with the source's blank lines kept.  No
-test yet.
+A blank line among the comments between an import's annotation block and its `import` keyword is dropped: `#[x]` /
+`// e` / an empty line / `// f` / `import "g"` prints `// e` / `// f` together, where a declaration keeps it; and
+after an empty block (`#[]`, which bnfmt drops) a declaration also keeps a blank line before its keyword, which an
+import drops (checked 2026-11-16 on binate `576087170`).  takeImportEntry (print_imports.bn) collects these comments
+as the import's inner ones, and printImportEntry prints them one per line.  Fix: keep those blank lines as the
+declaration printer does, the lines of an empty block's `[` and `]` not counted as blank (emptyBlockGap).  A block
+comment on the import's line before `import` (`#[x] /* c */ import "b"`) prints inline after `import ` (`import /* c
+*/ "b"`): that is the import printer's rule for a comment before the path
+(TestFormatImportCommentBeforePathTravels), which keeps it moving with its import when the run is sorted, and the
+user chose to keep it for an import with a block too (2026-11-17, "Keep the rule (Recommended)").
 
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 

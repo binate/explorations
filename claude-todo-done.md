@@ -211,8 +211,9 @@ emptyBlockGap; a review found the blank lines lost in a first version).  The tre
 not idempotent.  A `// LONG-LINE ALLOWED` line on which a later declaration has an empty block and then a comment
 now prints one declaration per line, as with a non-empty block.  Test: TestEmptyAnnotationBlockHoldsItsLines (cases
 with a block's `[` on a later line than its `#` in binate `b8e6c8b8d`, the review of its coverage).  The
-comments between an import's block and its `import` keyword, which move with an empty block or not, are a new entry:
-"bnfmt moves a comment between an import's annotation block and its `import` keyword".
+blank lines among the comments between an import's block and its `import` keyword, dropped with an empty block or
+not, are a new entry:
+"bnfmt drops the blank lines among the comments between an import's annotation block and `import`".
 
 ### VM: a native variadic called through a function value got its `...*any` elements untranslated -- SIGSEGV — DONE (binate `73cb63433`, test `755971571`, 2026-11-16, work-1; MAJOR; user: "yes, fix the function-value crash next")
 
