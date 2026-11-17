@@ -7,6 +7,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM: a named raw `*any` slice over another named type, spread into a native variadic, reaches the callee with its interface values untranslated -- SIGSEGV — 🔴 OPEN (MAJOR: valid code crashes on the VM; found 2026-11-16, work-1, review of the VM cross-mode walks change)
+
+On the VM, `type N1 *[]*any; type N2 N1; var n2 N2 = parts[:]; fmt.Println(n2...)` dies with SIGSEGV (exit 139);
+compiled (LLVM) it prints the elements, and an alias (`type A = *[]*any`) or a single named level works on the VM too.
+argIsSliceOfRawIface (vm/lower_slots.bn) peels one alias and then one named level from the slice, and the same from its
+element, but a named type over a named type keeps that named type as its underlying, so the slice is not seen as one of
+raw interface values: the call site records no SliceIfaceSlots, and the injected-native callee (pkg/std/fmt)
+dereferences bytecode vtable words.  An element type two named levels deep (`type E0 *any; type E E0`, a `*[]E`) is
+missed the same way.  Fix: peel the slice and its element with types.StripWrappers, and add the element case to the
+test.  Test: conformance 1753_variadic_spread_named_raw_any_slice (an alias, one, two and three named levels),
+`.xfail` on builder-comp-int, builder-comp-int-int and builder-comp-comp-int.
+
 ### At the REPL, a method expression on a prompt type alias named like a package IR-gen's alias map holds but the checker binds no name to (`type vlib = P; vlib.Add`) names that package's function -- the wrong function, silently, or an internal error — 🔴 OPEN, MAJOR (silent wrong code; found 2026-11-16, work-6, review of the REPL forwarder-import fix; pre-existing: on main at binate `017f68dde`)
 
 - **Symptom:** a session rooted at a file importing pkg/vfwd (its `.bni` is `expose "pkg/vlib"`; pkg/vlib declares
