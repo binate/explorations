@@ -388,6 +388,24 @@ IR-gen cannot map is an internal error, never `int`.
    - 6-6: delete CurrentImportPkg-as-resolution, overlayFileImports, RegisterGenericBodyDeps and the bare-name
      precedence (moduleNamesInScope, definingPkgType, bareGlobalIdx's rules).  Syntax with no record still
      reads by name until stage 7.
+     Survey (2026-11-17, work-6: a temporary note at each lookup by spelling, the differential sweep over every
+     conformance program and cmd/bnc's packages under bnc, and the programs under bni): with a checker, a lookup by
+     spelling is reached only for (a) IR-gen's own syntax -- the package init's assignments (buildInitBody), the call
+     of a generic instance by its mangled name, a receiver's `_` binders (`_#0`, also in another package's generic
+     method, where it reads CurrentImportPkg); (b) checked syntax that a query asks about and that is not what it
+     asks about -- instantiationHead on an index whose base is no name (3,177 of 4,039 inputs), pkgMemberQualName on
+     a method or field selector (`v.M`, v a variable), genericInstanceName on an index -- and `__Package`, which has
+     no record by design.
+     6-6a: the record decides for checked syntax (no record answers the query), and IR-gen's own syntax is resolved
+     directly (an instance call names its instance; `_` binders get records), so that with a checker no lookup by
+     spelling runs in another package's code (CurrentImportPkg set).  6-6b: delete CurrentImportPkg-as-resolution,
+     the import overlays (instances, impls, per declaration) and the precedence rules; their white-box tests go
+     (decision 5).
+     RegisterGenericBodyDeps is not only resolution: it declares the functions (signatures and externs), variables
+     and constants of the packages a generic body reaches that the consumer does not import, and a recorded reference
+     needs them (a recorded function with no signature is an internal error).  The drivers' scan of those packages
+     also feeds RegisterImportedImpls (their vtables).  Open question (asked 2026-11-17): keep it as that declaration
+     pass, dropping only its resolution role, or declare on demand from the records?
 6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
    stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
    live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the
