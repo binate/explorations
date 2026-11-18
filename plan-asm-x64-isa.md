@@ -224,5 +224,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   into asm/x64/prefix (LockNext stays in x64), int / int3 / ud2 / syscall into asm/x64/ctrl, the flag instructions
   into asm/x64/flags; x64.bni 964 -> 861 lines.
 
-Next: 1j, the system instructions (above), in a sub-package of their own (sysret / sysenter / sysexit beside
-syscall in asm/x64/ctrl).
+- 1j1 — landed binate `be81b6436` (2026-11-17): asm/x64/sys (the system instructions listed in the 1j decision
+  above) and its parser (parse/x64_sys.bn, x64_sysreg.bn), sysret / sysenter / sysexit in asm/x64/ctrl; plus, as
+  clang takes them and no stage had listed them, lfs / lgs / lss (sys) and xlat (asm/x64/strop).  The parser also
+  reads what clang reads as registers: db0..db15 (lower case only, DR0..DR15; they had been symbols, so `mov db7,
+  rax` stored to memory), flags / eflags / rflags, mxcsr, ssp, fpsr, fpcr, dirflag, tmmcfg, fp0..7 (errors, as
+  clang); and the size names mmword (qword) and xword (tbyte).  Proposed when asking to land, and landed on the
+  user's "wait 4 minutes, then go ahead" (neither answered directly): xlat's operand under the 1f string-operand
+  rule (exactly [rbx], any segment emitted: `xlat byte ptr fs:[rbx]` is 64 D7, as GNU as; clang drops the
+  override and ignores the address); `ymmword` / `zmmword ptr` on the any-size instructions (lgdt, xsave, ..)
+  come with stage 4 / 5's size keywords (adding them changes what lea / setcc take too).
+
+Next: 1j2, the virtualization and security extensions (above).
