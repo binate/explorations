@@ -1,3 +1,50 @@
+### Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a signature — DONE (binate `a120cd8ed`, 2026-11-17, temp-5) (claimed 2026-11-17, temp-5; user chose "Follow the spec (Recommended)") (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
+
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
+Tag[[8]uint8] alone, `type G2[S any, U any] struct { u U }`, `interface I[U any] { m(g G2[Self, U]) int }`, `func
+use(i *I[int32]) {}` and `func (g *G2[S, U]) f(k *K[@T, U]) int { return 0 }`, the program is accepted;
+with f declared before I it is rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at f's K.  A
+concrete instance's miss is reported: with G2[R, int8] named, "... Tag[[1]uint8] (in G2[R, int8].f, ...)".  The review
+read it as G2[Self, int32]'s method signatures being checked only when the method is collected before I forms the
+instance (a method copied on later is resolved without reporting, and an instance abstract only through `Self` gets no
+instance check); not verified.  Which order is right -- whether such an instance's method signatures are checked -- is
+the first thing to settle, from the spec (gen.mono): every implementer of I[int32] reaches G2[R, int32].f, whose miss
+is reported there.  Test: both orders as unit tests, agreeing.
+
+Not only through `Self` (found 2026-11-17, temp-5, review of the specialization fix): with `type G2[S any, U any]
+struct { s S }`, `func f[X any](g *G2[X, int32]) int { return 0 }` and then `func (g *G2[S, U]) n(k *K[@T, U]) int {
+return 0 }`, the program is accepted; with n declared before f, or G2[X, int32] formed in f's body instead, it is
+rejected, "type argument @T does not satisfy constraint Tag[[4]uint8]" at n's K.
+
+Wider, and the order settled from the spec (2026-11-17, temp-5): accepting is right in every order.
+gen.mono.instances names no instantiation whose type arguments hold a type parameter or `Self`, and gen.mono.check
+checks a generic's deferred constructs only for the instantiations named ("even ones no type argument could
+satisfy"); K[@T, U] is written in G2, where its constraint (a length of U's size) is deferred.  But the checker
+judges the constraints in an abstract instance's structure as it builds it (InstanceState.Concrete is 0 there, so a
+miss is taken for a declaration's), wherever the instance is formed: with `type H[V any, W any] struct { k *K[@T, W];
+v V }`, `func f[X any](x X) int { var h H[X, int32]; _ = h; return 0 }` is rejected with f never instantiated, as is
+`func f[X any](h *H[X, int32]) int`.  The judgment is unsound besides: with `type H[V Tag[[4]uint8], W any] struct {
+k *K[V, W] }`, `func f[X Tag[[4]uint8]](x X) int { var h H[X, int64]; _ = h; return 0 }`, `f[@B](make(B))` called
+and @B a Tag[[4]uint8] and a Tag[[8]uint8], the program is rejected, "type argument X does not satisfy constraint
+Tag[[8]uint8]" at H's field, though H[@B, int64], the one instance named, satisfies it (written directly it is
+accepted).  All on binate main `32b3bbac6` and on `4368f116d`.  Proposed fix: judge no constraint in an abstract
+instance's structure (bound with a type parameter or `Self` among its arguments, other than a generic's own check;
+an alias target keeps its use's), so that only a declaration's own check and the named instances judge.  Then a
+declaration-level miss is never one an abstract instance found, and the specialization matching of binate
+`c42bd0c6e` (CheckError.MissArgs, missArgsCover) may have nothing left to decide; to be checked, and removed if so.
+Decided (2026-11-17): user chose "Follow the spec (Recommended)".
+Done (binate `a120cd8ed`): what an abstract instance's structure forms -- bound with a type parameter or `Self`
+among its arguments -- is judged against no constraint, as it is built or at a replay (judgesConstraints,
+Generics.AbstractBound); a generic's own check and the instances named judge.  Every order of the shapes above is
+accepted, as are the uninstantiated-f programs and the @B program; a named instance's miss is still reported
+(f[int8] reports H[int8, int32]'s, via f[int8]).  The specialization matching of binate `c42bd0c6e`
+(CheckError.MissArgs, missArgsCover) had nothing left to decide and was removed.  A struct instance named with
+arguments that miss its generic's own constraints (W[int32] through Y[int32]) now reports the knock-on miss in its
+structure, naming the instance, as function instances and method bodies already did (the design-B follow-up "An
+instance whose constraint check failed is still checked").  What is left of the same rule -- concrete instances
+formed only through an abstract one, generic function instances with dependent-length arguments, other dependent
+constructs -- is the entry "Instances formed only through an abstract instance are checked as if named".
+
 ### `bnc -g --linker bnld` built a program with no debug info, saying nothing — DONE (binate `ce530454d`, 2026-11-17, work-3) (claimed 2026-11-17, work-3; user: "then work on rejecting -g --linker bnld") (found 2026-11-14, work-3, reviewing the `-g` macOS fix)
 
 - bnld (`pkg/binate/link`) drops an ELF input's non-allocated sections (`.debug_*`) and writes no Mach-O debug map,
