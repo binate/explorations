@@ -154,3 +154,15 @@ Notes for 4c-4e from the 4b review (2026-11-17):
   keeps the source's scope only when it is the destination's.  cmd/bnc before / after: LLVM objects identical at -O0 /
   -O2, emitted LLVM IR identical for all 85 packages; native objects slightly smaller (aa64 -160 B, x64 -304, arm32
   -1,916) from the markers' instruction positions in the allocator.  Next: 4c.
+- Step 4c DONE: binate `eb2442a91` (2026-11-18).  PlanFrame shares the bytes of allocas with a scope
+  (common_alloca_share.bn): live from each access (OP_ALLOC, an instruction naming the slot, a call placed into it)
+  to an end of its scope; interference where one is accessed while the other is live; first fit in first-access
+  order.  The fail-loud check in the 4b notes became a demotion: a program may keep a slot's address past its scope
+  (only reading through it is undefined), so only a LOAD of the slot not reached by a whole write since its scope
+  ended counts, and such a slot keeps bytes of its own instead of stopping the compiler.  AggLoadElision's S-alloca
+  rule and LastUseArgLoads stop at the slot's scope end.  Frames (aa64 / x64 / arm32): parseType 768 / 816 / 512,
+  parseTypeInner 1,216 / 1,216 / 720, parseStructType 1,952 / 2,000 / 1,136 (unchanged), parseStructField 1,648 /
+  1,648 / 1,008, parseTypePrefix 2,240 / 2,288 / 1,408, parsePrimaryExpr 4,112 / 4,112 / 2,480 (perf/frame-sizes.sh;
+  a struct level 5,584 on aa64, from 5,760; LLVM 3,840).  Full conformance native aa64 / x64 / arm32 bare metal
+  3971 / 3971 / 3926, 0 failed; arm32 Linux subset.  Next: 4d (LLVM lifetime intrinsics), 4e (statement
+  temporaries); the hidden `.` slots stay unshared.
