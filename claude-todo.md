@@ -1300,18 +1300,26 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### A generic body's `mid.__Package()` -- `mid` an import of the generic's package that the instantiating package does not import -- is an internal error — 🔴 OPEN (found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
+### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
 
-- Symptom: `pkg/lib`'s generic `func MidName[T any](x T) *[]readonly char { return mid.__Package().Name }`,
-  instantiated in a package that imports `pkg/lib` but not `pkg/mid`, fails to compile (bnc and bni alike):
-  `panic: internal error: IR-gen has no signature for the called function pkg/mid.__Package (compiler bug)`.
-  A bare `__Package()` in the same body works (it names `pkg/lib`), and so does a call of mid's own functions.
-- Cause: the compiler-synthesized accessor's signature is registered for the module's own package and for each
-  direct import (gen_import.bn), but not for the packages registerGenericBodyDepsFlat declares for generic bodies
-  (it declares only their files' declarations).
-- Fix: declare the accessor for those packages too -- in RegisterGenericBodyDeps, or wherever plan-irgen-checker-types
-  6-6 moves that declaring (its open question: keep the pass, or declare on demand from the checker's records).
-  Test: a conformance test of the repro above, expected-fail until fixed.
+- Symptom (MAJOR): main imports `pkg/a` only; `pkg/a`'s generic `A[T]` calls `pkg/b`'s generic `B[T]`, whose body
+  is `return __Package().Name`.  `a.A[int](1)` prints `main`, not `pkg/b` (bnc and bni alike); the same in a
+  closure in B's body and in a generic impl method of pkg/b called through an interface.  With main importing
+  pkg/b as well, it prints `pkg/b`.
+- Symptom: the qualified form, `mid.__Package()` in pkg/lib's generic body instantiated where `pkg/mid` is not
+  imported, is `panic: internal error: IR-gen has no signature for the called function pkg/mid.__Package
+  (compiler bug)`.  So is `fwd.__Package()` of an imported package with no declarations (a forwarder that only
+  `expose`s another); `_func_handle(fwd.__Package)` of one is an undefined `@__handle...` in bnc's LLVM IR
+  (clang rejects it) and works under bni.
+- Cause: the compiler-synthesized accessor's signature (and extern) is registered for the module's own package
+  and each direct import (gen_import.bn), skipping a package with no declarations (`len(file.Decls) == 0`), and
+  not for the packages registerGenericBodyDepsFlat declares for generic bodies.  IR-gen read a bare `__Package`
+  by its spelling, in CurrentImportPkg's package when that registers one, else the module's own -- the wrong
+  answer above.
+- Fix: register the accessor for every package the module registers -- generic bodies' dependencies, and
+  packages with no declarations.  The checker's record of `__Package` (plan-irgen-checker-types 6-6a, not
+  landed) names the right package, and turns the wrong output and the forwarder's handle into internal errors
+  until the accessor is registered.  Test: conformance tests of the repros above, expected-fail until fixed.
 
 ## Performance
 
