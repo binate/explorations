@@ -3837,7 +3837,7 @@ is reported rather than parked.  Fix: peel one raw or managed pointer level in r
 noteMissingImpl does for conversions, and key a constraint use on its receiver shape (`*Box:Sizer`), so only an impl
 with that receiver wakes it or counts as binding it; REPL tests for each.
 
-### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — 🔴 OPEN, scheduled: plan-irgen-checker-types.md stage 6b (decision 7) (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix)
+### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — 🟡 IN PROGRESS (claimed 2026-11-18, work-6, as plan-irgen-checker-types.md stage 6b, decision 7; user: "yes") (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix)
 
 `type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T
 { return c.Get() }`, then `func (c *Cur[T]) Get(k int) int { return k }`: with an instance of Cur already
@@ -3863,7 +3863,7 @@ sibling keeps calling the old (shadowed) method, which stays instantiable — to
 - Sequenced (user, 2026-11-08): decision 7 goes on stage 6's records, as plan-irgen-checker-types.md stage 6b, not as
   REPL-only machinery ahead of stages 5 and 6 ("yes, follow the plan").
 
-### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🔴 OPEN, scheduled: plan-irgen-checker-types.md stage 6b (decision 7; the entry above) (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
+### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🟡 IN PROGRESS (claimed 2026-11-18, work-6, as plan-irgen-checker-types.md stage 6b, decision 7, with the entry above; user: "yes") (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
 
 ```
 func g() int { return 1000 }
