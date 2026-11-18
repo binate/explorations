@@ -1,3 +1,16 @@
+### A box of an aggregate over 16 bytes loaded through a pointer or from a global copies it twice — DONE (binate `488cf4448`, 2026-11-18, work-1; user: "then do the double-copy change", landed with "yes")
+
+`box(gw)` / `box(*p)` of a bulk value over 16 bytes: common.AggLoadElision's S-adjacent shape reads a load of more
+than 16 bytes in place only for a whole return, argument or store (returnedWhole / passedWhole / storedWhole), so a
+load whose one use is a box keeps its private copy (`.m` in LLVM codegen), and rt.Box then copies that copy into
+the box.  A box copies its operand into fresh memory no pointer reaches, as a by-value argument does, so the load
+could read its source in place there too (found by the review of binate 7f4b8e07d).  The rule is shared with the
+native backends: check how each lowers a box of an in-place load before widening it.
+- Fixed by binate `488cf4448`: a load whose one use is an OP_BOX operand (boxedWhole) is read in place at any
+  size; each native backend's emitBox and LLVM codegen's emitBulkMemBox hand rt.Box the source pointer.  A
+  sub-word-aligned load of at most 16 bytes still copies, as for an argument.  TestAggLoadElisionBoxed,
+  TestBulkBoxReadsSourceInPlace (both fail without it); the conformance tests that box pass on every backend.
+
 ### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — DONE (binate `04d83b376`, 2026-11-18, work-6; user: "Fix it first (Recommended)") (MAJOR: silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
 
 - Symptom (MAJOR): main imports `pkg/a` only; `pkg/a`'s generic `A[T]` calls `pkg/b`'s generic `B[T]`, whose body
