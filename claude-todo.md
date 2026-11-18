@@ -2770,7 +2770,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt drops the blank lines among the comments inside a grouped import's non-empty annotation block — 🔴 OPEN 🟢 LOW (found 2026-11-17, temp-4, working on the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
+### bnfmt drops the blank lines among the comments inside a grouped import's non-empty annotation block — 🟡 IN PROGRESS (claimed 2026-11-18, temp-4; user: "yes, take the first one, then the second") 🟢 LOW (found 2026-11-17, temp-4, working on the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
 
 A grouped import's block prints on each of its imports without its comments, which print above the run as the
 group's (emitImportComments, print_imports.bn), and a blank line among those inside a block with entries is dropped:
@@ -2781,7 +2781,7 @@ where an argument expression ends.  Fix: find the lines of each entry's tokens -
 (ast.Annotation.NamePos), the `(` and `)` of its arguments (the file's bracket pairs), each argument's extent and
 the commas -- and count only those as held.
 
-### bnfmt drops the blank lines among an empty import group's comments — 🔴 OPEN 🟢 LOW (found 2026-11-17, temp-4, review of the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
+### bnfmt drops the blank lines among an empty import group's comments — 🟡 IN PROGRESS (claimed 2026-11-18, temp-4; user: "yes, take the first one, then the second") 🟢 LOW (found 2026-11-17, temp-4, review of the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
 
 An empty import group (`import ()`, which prints nothing) with an annotation block and comments before its `(` loses
 the blank lines among them: `import "z"` / `#[x]` / `// a` / an empty line / `// b` / an empty line / `import ()` /
