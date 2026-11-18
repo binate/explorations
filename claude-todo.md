@@ -2850,6 +2850,17 @@ comment on the import's line before `import` (`#[x] /* c */ import "b"`) prints 
 (TestFormatImportCommentBeforePathTravels), which keeps it moving with its import when the run is sorted, and the
 user chose to keep it for an import with a block too (2026-11-17, "Keep the rule (Recommended)").
 
+### bnfmt drops the blank lines among a grouped import's comments before its `(` — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "Next commit (Recommended)", to follow the ungrouped fix) 🟢 LOW (found 2026-11-17, temp-4, review of the ungrouped fix; pre-existing, main the same)
+
+A grouped import's comments between its annotation block and its `import (` lose the blank lines among them: `#[x]`
+/ `// a` / an empty line / `// a2` / `import (` / `"y"` / `"x"` / `)` prints `// a` / `// a2` / `#[x]` / `import
+"x"` / `#[x]` / `import "y"`, and an empty block (`#[]`) loses them too (checked 2026-11-17 on binate `b8e6c8b8d`);
+the comments after the group's `(` keep theirs.  The group's block is printed on each of its imports, so those
+comments are the group's: emitImportComments (print_imports.bn) places them above the run, and its blank-line test,
+blankBetween, counts every line from the `#` to `import` as non-blank.  Fix: count only the lines holding the
+block's tokens, `import`, `(` and `)`.  Design point to settle: with a non-empty block these comments print above
+the block, while a declaration drops the blank line before its keyword.
+
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
