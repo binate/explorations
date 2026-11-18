@@ -435,7 +435,7 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Instances formed only through an abstract instance are checked as if named, and an abstract instance decides other dependent constructs — 🔴 OPEN (rejects valid programs; found 2026-11-17, temp-5, review of the abstract-instance judgment fix; pre-existing)
+### Instances formed only through an abstract instance are checked as if named, and an abstract instance decides other dependent constructs — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5/session; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
 
 With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }` and `@T` a
 Tag[[8]uint8] alone, these are rejected though nothing they form is named (spec gen.mono.instances, gen.mono.check):
