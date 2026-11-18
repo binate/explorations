@@ -1326,6 +1326,15 @@ quote numbers from this file (they go stale):**
   backends by static instruction/reload counting on a `--target` build, or on
   real hardware/CI.
 
+### A box of an aggregate over 16 bytes loaded through a pointer or from a global copies it twice — 🟡 IN PROGRESS (claimed 2026-11-18, work-1; user: "then do the double-copy change")
+
+`box(gw)` / `box(*p)` of a bulk value over 16 bytes: common.AggLoadElision's S-adjacent shape reads a load of more
+than 16 bytes in place only for a whole return, argument or store (returnedWhole / passedWhole / storedWhole), so a
+load whose one use is a box keeps its private copy (`.m` in LLVM codegen), and rt.Box then copies that copy into
+the box.  A box copies its operand into fresh memory no pointer reaches, as a by-value argument does, so the load
+could read its source in place there too (found by the review of binate 7f4b8e07d).  The rule is shared with the
+native backends: check how each lowers a box of an in-place load before widening it.
+
 ### The inliner never inlines a call emitted by bare local name -- the struct equality helpers and the dtor helper calls — 🔴 OPEN (found 2026-11-03, work-3, review of the struct-equality helper)
 
 irbuild.EmitCallLocal stores the callee's bare name (`__eq_<type>`, irutil.MsElemsDtorName, DtorNameForType) in the
