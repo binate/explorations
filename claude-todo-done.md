@@ -1,3 +1,29 @@
+### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — DONE (2026-11-18, work-1; plan: done/plan-deep-nesting.md)
+
+About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
+type's underlying, an array's element, a struct's field: prepareLayoutIn, typeReachesNamedByValue, holdsItselfIn,
+collectLiteralTypes, ensureMembersIn, instanceNotBuiltOf, collectExportOwners, typeMentionsParam, AssignableTo's
+named steps, sizeOf / alignOf, among others -- and the parser, the checker and IR-gen recurse per level of an
+expression's nesting.  So a deep enough nesting (a chain of named types, `[1][1]...[1]int`, structs in structs,
+`((((...))))`) exhausts the compiler's stack rather than getting a diagnostic, and §21.4
+(`conf.implementation.limits`) catalogues no such limit.  Choice: catalogue nesting-depth limits (types and
+expressions, each with a minimum) and diagnose them where they are formed, or make the walks iterative (explicit
+work lists).  Not the named-type cycle check's 1024 bound, which the cycle-check fix removes.
+
+Some walks instead stop at a fixed nesting depth and give a wrong answer past it (found 2026-11-02, work-1, the
+sweep for step caps): check_dependent.bn's containsDependentArrayDepth and identicalUpToDependentDepth (64 levels:
+false / "identical only if both nil").  A nesting limit would bound these too; iterative walks would drop
+them.  (check_generic_expand_flow.bn's
+expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
+limits, not this.)
+- Done (user, 2026-11-03: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to
+  impose an implementation limit"): every walk over a type's parts in types, types/abi, check, IR-gen, irutil,
+  LLVM codegen, the VM and interp is a loop or a work list; the source nesting limit (step 2) and the 1024-level
+  type-depth limit (step 3) are in the spec; and LLVM codegen keeps a deep aggregate out of SSA form wherever it
+  goes (bulk past 16 levels, binate 0922dcc39; in registers, 4bdc46904; boxed, 7f4b8e07d; the overlap fix
+  77edf865f).  Each stage, its commit and its decisions are in done/plan-deep-nesting.md; the LOW compile-time
+  entries it found (quadratic checking, alias chains, instance caches, the 20,000-struct -g ring, ...) stay open.
+
 ### LLVM codegen copies `*p = *q` of a deep aggregate of at most 16 bytes with memcpy, wrong when p and q overlap — DONE (binate `77edf865f`, 2026-11-17, work-1) (MAJOR, wrong code on bare metal; found 2026-11-17, work-1, review of the register-passed deep-aggregate change)
 
 - Symptom: with `type D` an `[4]int32` nested in 20 one-element arrays, `buf` an `[8]int32` holding 1..8,
@@ -1184,7 +1210,7 @@ each frame -- a level 6,416.  `788ff5285`: spilled values whose live spans do no
 (planSharedSpills) -- a level 5,712.  Conformance spec/07-types/305 nests a struct, an array, a pointer and a func
 value 1024 levels deep, each as one type expression; a native bnc from before `20b98a7ba` dies on it, and it passes
 in all 11 modes.  Past the 1024 limit the parser still overflows before the checker can reject the type (1600
-levels) -- plan-deep-nesting.md's parser nesting limit (work-1).  The rest of the frame gap is the open entry
+levels) -- done/plan-deep-nesting.md's parser nesting limit (work-1).  The rest of the frame gap is the open entry
 "Native frames are still about 1.5x LLVM's" (plan-native-frame-slots.md steps 3-5).
 
 ### Dependent-length constraints, step 5, constraint satisfaction: a miss that depends on a type parameter's length is judged per instance — DONE (binate `77ef9401d`, 2026-11-11, temp-5; landed on "wait 15 minutes, then land; then continue") (step 5 of explorations/plan-dependent-constraints.md, for the open entry "In a generic's own check, a constraint whose length depends on the generic's type parameter …")

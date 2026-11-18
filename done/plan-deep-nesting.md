@@ -1,6 +1,7 @@
 # Plan: deep nesting -- iterative type walks, and nesting limits
 
-Status: decided 2026-11-03 (work-1); stages types and types/abi done, stage check next.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
+Status: COMPLETE 2026-11-18 (work-1) -- every stage landed (Progress below); the last, a bulk value boxed from
+its memory, binate `7f4b8e07d`.  claude-todo.md: "Deep nesting -- of types or of expressions -- is bounded only
 by the compiler's stack".  User (2026-11-03): "Let's rewrite them as loops, since that seems better regardless. We
 may *also* want to impose an implementation limit (in case some path leads to recursion)".
 
@@ -477,10 +478,12 @@ recursive, so far more than 75).
   copied into their slots): the 8-byte `[1]`^1022 int probe 112 s -> 0.45 s.  Its review found part 1's overlap bug
   (memcpy for an overlapping `*p = *q` of a deep aggregate of <= 16 bytes; MAJOR, wrong on bare metal), fixed first
   by binate `77edf865f`.
-  Next (user: "yes, make box be the next commit"): `box(w)` of a deep value (into an interface or an `@W`) still
-  loads it whole -- 56 s for a 1022-level one; boxing a many-leaf value has the same per-leaf SSA load.  Every other
-  consumer probed is clean (bit_cast, composite literal, generic, variadic, managed-slice, ==, value receiver).
-  Then close the plan.
+- Box DONE: binate `7f4b8e07d` (landed 2026-11-18; user: "yes, make box be the next commit", then "yes, go ahead")
+  -- an OP_BOX takes a memory-backed operand, handing its memory to rt.Box: a box of a 1020-level value 56 s ->
+  0.67 s.  Every other consumer probed was already clean (bit_cast, composite literal, generic, variadic,
+  managed-slice, ==, value receiver).  Plan closed (user: "then close it").  Follow-up the box review found (not a
+  deep-nesting matter): a box of a bulk value over 16 bytes copies its source into `.m` first; AggLoadElision could
+  read it in place as for a by-value argument.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".

@@ -28,25 +28,6 @@ fatal "stack overflow" panic (rc=134).  Choice: make it a defined fatal error wi
 guard page / stack probe in compiled code), or catalogue it as implementation-defined -- a §21.4-style row whose
 form is mode-dependent, like §21.5's -- or undefined behaviour.
 
-### Deep nesting -- of types or of expressions -- is bounded only by the compiler's stack; spec §21.4 lists no nesting limit — 🟡 IN PROGRESS (claimed 2026-11-03, work-1; user: "Let's rewrite them as loops, since that seems better regardless. We may *also* want to impose an implementation limit (in case some path leads to recursion)") (found 2026-11-02, work-1, planning the named-type cycle-check fix; user: "Separate todo: a nesting limit"; by reading)
-
-About fifteen recursive walks in check and types recurse once per level of a type's nesting -- through a named
-type's underlying, an array's element, a struct's field: prepareLayoutIn, typeReachesNamedByValue, holdsItselfIn,
-collectLiteralTypes, ensureMembersIn, instanceNotBuiltOf, collectExportOwners, typeMentionsParam, AssignableTo's
-named steps, sizeOf / alignOf, among others -- and the parser, the checker and IR-gen recurse per level of an
-expression's nesting.  So a deep enough nesting (a chain of named types, `[1][1]...[1]int`, structs in structs,
-`((((...))))`) exhausts the compiler's stack rather than getting a diagnostic, and §21.4
-(`conf.implementation.limits`) catalogues no such limit.  Choice: catalogue nesting-depth limits (types and
-expressions, each with a minimum) and diagnose them where they are formed, or make the walks iterative (explicit
-work lists).  Not the named-type cycle check's 1024 bound, which the cycle-check fix removes.
-
-Some walks instead stop at a fixed nesting depth and give a wrong answer past it (found 2026-11-02, work-1, the
-sweep for step caps): check_dependent.bn's containsDependentArrayDepth and identicalUpToDependentDepth (64 levels:
-false / "identical only if both nil").  A nesting limit would bound these too; iterative walks would drop
-them.  (check_generic_expand_flow.bn's
-expandArgFlow counts an alias chain past 64 as growing -- a generic-expansion rule, beside §21.4's instantiation
-limits, not this.)
-
 ### A diagnostic names a type from another package by its bare name: ambiguous where the package being checked has a type of that name — 🔴 OPEN (minor: a misleading message; found 2026-11-14, temp-5, the sibling-constraint fix; pre-existing)
 
 In conformance 12-generics/221, package app declares its own `interface Tag[T any]`, and `var g *glib.Getter[*X]`
@@ -2981,7 +2962,7 @@ A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding
 rules for each declaration (opaqueRulesKept -> pointeeEmbedsOpaque -> stepBringPointeeKept), and pointeeBase peels the
 rest of the chain for each one, entering every name in a nameVisits table -- O(n^2) table operations, most of the time
 in the table's name equality (sampled).  A unit test of 6,000 declarations took 212 s in check's test binary; bnc
-took 207 s at 20,000 (plan-deep-nesting.md).  Fix: keep pointeeBase's answer per named type across the batch, as the
+took 207 s at 20,000 (done/plan-deep-nesting.md).  Fix: keep pointeeBase's answer per named type across the batch, as the
 pointer rule's answers are kept (opaqueRulesKept), or peel a chain of names once.
 
 ### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
@@ -2996,7 +2977,7 @@ container type is cut at 1024 levels (type.named.depth) and an inline one will b
 limit, so this is at most ~10^6 steps per retype.  AssignableTo decays a chain of named types over named types (`type
 N0 N1`, `type N1 N2`, …) one name at a time, and each step walks the rest of the chain -- ComparabilityKind
 (StripWrappers), and ensureMembers while instances wait -- and names add no depth, so no limit bounds the chain
-(plan-deep-nesting.md, step 3: such chains scale badly).  Fix: isUnsafeAggregateLeafRetype can ask Identical of the
+(done/plan-deep-nesting.md, step 3: such chains scale badly).  Fix: isUnsafeAggregateLeafRetype can ask Identical of the
 deepest pair only (elements identical at one level are identical at every level below, which the walk then
 reaches); the cast retype needs its readonly checks made one level at a time, which differs from the whole-type
 check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
