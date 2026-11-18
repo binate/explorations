@@ -103,6 +103,22 @@ Notes for 4b-4d from the 4a review (2026-11-17):
 - An inlined callee's scope-0 slots and the inliner's result / tuple slots live for the whole caller, so they never
   share; safe, but a callee inlined many times grows the frame by its slots each time.
 
+Notes for 4c-4e from the 4b review (2026-11-17):
+- 4c's PlanFrame should check the property it relies on and fail loud when it does not hold: no read of a slot of
+  scope s after an end of s unless an OP_ALLOC of the slot or a whole store comes first.  It would have caught the
+  copy-prop narrowing 4b's review found (4a gave the folded source the destination's narrower scope; a `break` ending
+  that scope before the copy reached a later read of the source).  Copy-prop now keeps the source's scope only when
+  the two are equal.
+- `var a T` for a plain struct or array with no initializer has no store: its first write is the zero-fill at its
+  OP_ALLOC, each time the declaration runs.  PlanFrame must keep that fill at the OP_ALLOC (never hoist it).
+- An inlined callee's plain `return` (no deferred block) emits no scope ends, so its slots stay live through the rest
+  of the caller; the inliner could end the clone's reserved range at the continuation.
+- Hidden `.`-named slots (`.complit`, `.borrow_temp`, `.forin.*`, `.typeswitch.scrutinee`) keep scope 0 (a hidden
+  slot's allocation can sit in a short-circuit operand that did not run while its scope's exit reads it); the
+  `.`-prefix test in stampVarScope is the convention that decides it.
+- sink_extract and the aggregate-load elision treat any scope end as a barrier; only the source's own scope needs to
+  be one.
+
 ## Progress
 
 - 2026-11-10: measured (above); step 1 started.
