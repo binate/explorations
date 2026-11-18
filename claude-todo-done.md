@@ -1,3 +1,34 @@
+### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — DONE (binate `04d83b376`, 2026-11-18, work-6; user: "Fix it first (Recommended)") (MAJOR: silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
+
+- Symptom (MAJOR): main imports `pkg/a` only; `pkg/a`'s generic `A[T]` calls `pkg/b`'s generic `B[T]`, whose body
+  is `return __Package().Name`.  `a.A[int](1)` prints `main`, not `pkg/b` (bnc and bni alike); the same in a
+  closure in B's body and in a generic impl method of pkg/b called through an interface.  With main importing
+  pkg/b as well, it prints `pkg/b`.
+- Symptom: the qualified form, `mid.__Package()` in pkg/lib's generic body instantiated where `pkg/mid` is not
+  imported, is `panic: internal error: IR-gen has no signature for the called function pkg/mid.__Package
+  (compiler bug)`.  So is `fwd.__Package()` of an imported package with no declarations (a forwarder that only
+  `expose`s another); `_func_handle(fwd.__Package)` of one is an undefined `@__handle...` in bnc's LLVM IR
+  (clang rejects it) and works under bni.
+- Cause: the compiler-synthesized accessor's signature (and extern) is registered for the module's own package
+  and each direct import (gen_import.bn), skipping a package with no declarations (`len(file.Decls) == 0`), and
+  not for the packages registerGenericBodyDepsFlat declares for generic bodies.  And the drivers hand that pass
+  the imports of each package with generics, never the package itself: pkg/b's generic type, reached through
+  pkg/a's non-generic `func Make() @b.Gb[int]`, is instantiated in main with none of pkg/b's declarations, so
+  its method's bare `__Package` reads `main` too, and its call of pkg/b's own function is an internal error
+  (found by the fix's review).  IR-gen read a bare `__Package`
+  by its spelling, in CurrentImportPkg's package when that registers one, else the module's own -- the wrong
+  answer above.
+- Fix: register the accessor for every package the module registers -- generic bodies' dependencies, and
+  packages with no declarations.  The checker's record of `__Package` (plan-irgen-checker-types 6-6a, not
+  landed) names the right package, and turns the wrong output and the forwarder's handle into internal errors
+  until the accessor is registered.  Test: conformance tests of the repros above, expected-fail until fixed.
+- Fixed (binate `04d83b376`, landed with plan-irgen-checker-types 6-6a, `36cf4d94e`): registerPackageAccessor
+  declares the accessor, once, for every package the module registers -- each direct import, one with no
+  declarations included, and each package RegisterGenericBodyDeps declares -- and the drivers (bnc, the VM, the
+  REPL) also hand that pass each package with generics the module reaches (Loader.ImportClosure), not only its
+  imports.  Without the reach check every module, rt included, took every generic package of the load, and
+  its object gained their weak interface ids.  Conformance 1762 covers the repros.
+
 ### An abstract or unnamed instance's build reports the dependent constructs other than constraints it decides — DONE (binate `8eafd6f20`, 2026-11-18, temp-5) (claimed 2026-11-17, temp-5; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
 
 No program names an instance with a type parameter or `Self` among its arguments, nor what only such an instance

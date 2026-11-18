@@ -409,6 +409,13 @@ IR-gen cannot map is an internal error, never `int`.
      per-declaration overlay); declaring on demand from the records is revisited with 5c-2's lazy registration.
      Its review found that a package's `__Package` accessor is declared only for direct imports with declarations
      (MAJOR todo entry); fixed first (user: "Fix it first (Recommended)"), 6-6a rebased onto the fix.
+     6-6a DONE (binate `36cf4d94e`, 2026-11-18; user: "wait 15 minutes, then land"), landed after the accessor fix
+     (binate `04d83b376`): the checker records `__Package` (packageAccessorSymbol: bare, the package whose code is
+     checked; `pkg.__Package`, the import's); a checked expression with no record (checkedExpr) is no generic
+     function's instantiation, package member or generic type instance; a generic instance's call names the instance
+     (genNamedCall); an instance method's receiver keeps its record.  Object code identical to the fix's for every
+     conformance program and cmd/bnc (1750 fails either way); the differential has no note left (1750's went with
+     it).  6-6b remains.
 6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
    stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
    live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the

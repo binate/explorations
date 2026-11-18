@@ -1252,31 +1252,6 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — 🟡 IN PROGRESS (claimed 2026-11-17, work-6; user: "Fix it first (Recommended)", before plan-irgen-checker-types 6-6a lands) (MAJOR: silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
-
-- Symptom (MAJOR): main imports `pkg/a` only; `pkg/a`'s generic `A[T]` calls `pkg/b`'s generic `B[T]`, whose body
-  is `return __Package().Name`.  `a.A[int](1)` prints `main`, not `pkg/b` (bnc and bni alike); the same in a
-  closure in B's body and in a generic impl method of pkg/b called through an interface.  With main importing
-  pkg/b as well, it prints `pkg/b`.
-- Symptom: the qualified form, `mid.__Package()` in pkg/lib's generic body instantiated where `pkg/mid` is not
-  imported, is `panic: internal error: IR-gen has no signature for the called function pkg/mid.__Package
-  (compiler bug)`.  So is `fwd.__Package()` of an imported package with no declarations (a forwarder that only
-  `expose`s another); `_func_handle(fwd.__Package)` of one is an undefined `@__handle...` in bnc's LLVM IR
-  (clang rejects it) and works under bni.
-- Cause: the compiler-synthesized accessor's signature (and extern) is registered for the module's own package
-  and each direct import (gen_import.bn), skipping a package with no declarations (`len(file.Decls) == 0`), and
-  not for the packages registerGenericBodyDepsFlat declares for generic bodies.  And the drivers hand that pass
-  the imports of each package with generics, never the package itself: pkg/b's generic type, reached through
-  pkg/a's non-generic `func Make() @b.Gb[int]`, is instantiated in main with none of pkg/b's declarations, so
-  its method's bare `__Package` reads `main` too, and its call of pkg/b's own function is an internal error
-  (found by the fix's review).  IR-gen read a bare `__Package`
-  by its spelling, in CurrentImportPkg's package when that registers one, else the module's own -- the wrong
-  answer above.
-- Fix: register the accessor for every package the module registers -- generic bodies' dependencies, and
-  packages with no declarations.  The checker's record of `__Package` (plan-irgen-checker-types 6-6a, not
-  landed) names the right package, and turns the wrong output and the forwarder's handle into internal errors
-  until the accessor is registered.  Test: conformance tests of the repros above, expected-fail until fixed.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
