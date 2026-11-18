@@ -862,7 +862,9 @@ aarch64 `bl sym@PLT` / `b sym@PLT` — and x86-64 `call sym@PLT` / `jmp sym@PLT`
 clang rejects `@PLT` on Mach-O ("invalid specifier"), and on ELF keeps a temporary target's own symbol for it
 (`R_AARCH64_CALL26 .Lg`, where we relocate against the section — the same linked result).  Fix: carry the
 specifier into the fixup (a PLT branch kind), which the Mach-O writer rejects and the ELF writer keeps against
-the label (found 2026-09-30 by the review of the local-labels commit).
+the label (found 2026-09-30 by the review of the local-labels commit).  `xbegin sym@PLT` (binate `387ee9af8`) is
+the same on Mach-O, a BRANCH there; on ELF it keeps the PLT (x64.FIX_REL32, where a plain `xbegin` is
+FIX_REL32_PC), but FIX_REL32 is also a plain call's kind, so it needs the same PLT branch kind.
 
 ### Loud miscompiles / wrong rejections found by the forwarder audit (not forwarder-specific) — 🟡 IN PROGRESS (claimed 2026-09-26, work-1 — user: "take on the bugs that you filed"; found 2026-09-26, work-1; agents' repros, not yet independently re-verified)
 
