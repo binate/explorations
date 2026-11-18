@@ -63,7 +63,7 @@ may share bytes; the IR has to say where the lifetimes end.
 
 - **IR.**  `Instr.Scope` on an OP_ALLOC: the id (>= 1) of the scope whose exit ends its storage; 0 = none (lives the
   whole function and is never shared).  A void `OP_SCOPE_END` with no operands carries the id in `Scope`, emitted
-  where control leaves the scope.  `Func.NextScope` numbers a function's scopes.  An id, not an operand naming the
+  where control leaves the scope.  `Func.NumScopes` counts a function's scopes.  An id, not an operand naming the
   alloca: the passes' escape checks treat any operand appearance of an alloca as an escape (mem2reg's
   allocaEscapes), so an operand marker would turn promotion and SROA off for every marked local; an id is invisible
   to them, and a pass that deletes an alloca leaves nothing dangling.  The inliner, the one place instructions move
@@ -84,6 +84,24 @@ may share bytes; the IR has to say where the lifetimes end.
 Sub-steps, each landing on its own: 4a the IR (field, op, verifier, VM / backends ignore it, inliner renumbering, IR
 printing) with nothing emitting it; 4b IR-gen marks variables' scopes; 4c native PlanFrame shares by them (frames
 re-measured); 4d the LLVM intrinsics; 4e statement temporaries.
+
+Notes for 4b-4d from the 4a review (2026-11-17):
+- 4a gives copy-prop's folded source the destination's scope (the source stands in for the destination for as long
+  as anything reads it), SROA's field slots their aggregate's, and every inlined call its own range of the caller's
+  ids.  A new pass that merges or replaces allocas must do the same.
+- 4b: a scope end interposed where a pass looks for a shape makes it optimize less, never wrongly: native branch
+  fusion wants the compare right before its branch (native/fold/branch_fuse.bn), and jump threading's isJumpOnly /
+  constPhiBranch, the inliner's isEmptyPad and the OpWritesNothing barrier (sink_extract, AggLoadElision) all see it.
+  Emit a scope end only for a scope that stamped an alloca, and never between a compare and its branch.  The marker
+  costs no code on any backend, no VM dispatch, nothing in the inliner's size count, and does not stop the native
+  register cache (all three retention lists take it).
+- 4c: the S-alloca in-place read (native/common/common_aggload_elision.bn, and codegen/emit_bulk_elide.bn for LLVM)
+  is barred only by a store to the slot between the load and its last use; once slots share bytes, an end of the
+  source's scope in that span must bar it too, and onlyPureOpsStrictlyBetween's "each OP_ALLOC is memory of its own"
+  no longer holds.  OpWritesNothing keeps OP_SCOPE_END out on purpose (its comment says why).  RetbufLocal and an
+  in-place parameter's slot own no frame bytes and are not allocas to LLVM: no sharing, no lifetime intrinsics.
+- An inlined callee's scope-0 slots and the inliner's result / tuple slots live for the whole caller, so they never
+  share; safe, but a callee inlined many times grows the frame by its slots each time.
 
 ## Progress
 
