@@ -2792,6 +2792,21 @@ entries, else those of its `#`, `[` and `]`), of its `import`, its `(` and its `
 ast.EmptyImport records only DeclPos, LParen and RParen, so the parser (parseImportDecl) must also record its
 `import`'s position and whether its block has entries (with the AST clone pin, ast_clone_test.bn).
 
+### bnfmt moves an empty import group's comments in three layouts — 🔴 OPEN 🟢 LOW (found 2026-11-18, temp-4, review of the empty group blank lines; pre-existing, main the same)
+
+An empty import group (`import ()`) prints nothing, and some of its comments end up elsewhere (checked 2026-11-18 on
+binate `f6578e7c6`): (1) one on the previous import's line becomes that import's trailing comment -- `import "z";
+#[x] // c` / an empty line / `import ()` / `import "a"` prints `import "a"` / `import "z" // c` (and `import "z";
+import ( // c` the same), where a non-empty group's goes on a line of its own; (2) a block comment inside it that
+ends on the next import's line moves onto that line, after its `import` -- `import ( /* c` / `*/ ) ; import "b"`
+prints `import /* c` / `*/ "b"`; (3) when it ends the import section, a blank line goes above its comments that the
+source does not have -- `import "a"` / `import ( // c` / `// d` / `)` / `func f() {}` prints `import "a"` / an empty
+line / `// c` / ....  In (1) takeImportEntry (print_imports.bn) takes the comment as the previous import's trail,
+its `next` being the next import's start, not the empty group's; in (2) emitImportComments leaves it to the next
+import, as a comment ending on that import's line, and its inline rule prints it after `import `; (3)'s cause is not
+traced (the comments come after the last import).  Fix: end an import's trail at an empty group's start, and place
+an empty group's comments as its own, on lines of their own.
+
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
