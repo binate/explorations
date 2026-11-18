@@ -73,9 +73,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
      operand model cannot express one — Reg 4-7 at SZ8 means SPL..DIL, with a forced REX.  Needs an
      operand form for them (and an error where a REX is needed beside one: `mov ah, r8b`, `mov ah,
      sil`, as clang's "can't encode 'ah' in an instruction requiring EVEX/REX2/REX prefix").  Found 2026-11-12
-     by the 1d review.
+     by the 1d review.  Also the general-purpose forms the 1j2 mnemonic sweep found missing (user, 2026-11-18:
+     "your recs for the placements seem fine"): `clr reg` (clang's alias of xor reg, reg), `inb` / `inw` / `inl`
+     / `outb` / `outw` / `outl` with a port number (AT&T names clang takes in Intel syntax), the `mov.s` suffix
+     (the swapped encoding) and `movnti`.
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
-3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`).
+3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`); MMX (`emms` and the MMX register forms)
+   and 3DNow!'s `femms`, which no stage had listed; and Key Locker's XMM forms (`loadiwkey`, `aesenc128kl` ..
+   `aesdec256kl`), which wait for the parser's XMM operands (user, 2026-11-18: "your recs for the placements
+   seem fine").
 4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers;
    and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-16, below).
 5. **EVEX: AVX-512** (`asm/x64/avx512`): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
@@ -240,4 +246,18 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   override and ignores the address); `ymmword` / `zmmword ptr` on the any-size instructions (lgdt, xsave, ..)
   come with stage 4 / 5's size keywords (adding them changes what lea / setcc take too).
 
-Next: 1j2, the virtualization and security extensions (above).
+- 1j2 — landed binate `387ee9af8` (2026-11-18; user: "go ahead", then "wait 3 minutes, then land"): asm/x64/virt
+  (VMX, SMX's getsec, SVM, SGX, TDX, SEV-SNP); in asm/x64/sys TSX (xbegin's abort target a new fixup kind,
+  x64.FIX_REL32_PC: R_X86_64_PC32 / X86_64_RELOC_BRANCH, as clang writes it), CET, WAITPKG, movdiri / movdir64b /
+  enqcmd(s), serialize, hreset, UINTR, ptwrite, lkgs, pconfig, rdpru, invlpgb, tlbsync, pbndkb, erets / eretu,
+  wrmsrns, the MSR lists and the immediate-MSR forms (VEX map 7), prefetchrst2, Key Locker's forms without XMM
+  operands, VIA PadLock and AMD's LWP; in asm/x64/gpext movrs, the remote atomics and cmp<cc>xadd.  A sweep of
+  LLVM's mnemonic table (each name bnas did not know, tried in llvm-mc with general-register, memory and immediate
+  operands) found getsec, Key Locker, PadLock, MOVRS and LWP after the first review, and the general-purpose gaps
+  now under 1k.  Kept differences: the decisions above; GNU as's rejections of prefixes clang emits (lock / rep /
+  the hints, repne before PadLock's own F3) and of xabort past an imm8; aes*wide*kl memory of any size (clang; GNU
+  as only size 0).  Not yet taken: 32-bit addresses (umonitor r32, movdir64b / enqcmd r32: stage 7), movdir64b's
+  `zmmword ptr` (stage 5's size), Key Locker's XMM forms (stage 3).  `xbegin sym@PLT` on Mach-O is a BRANCH, as
+  `call sym@PLT` is (the open `@PLT` entry in claude-todo.md).
+
+Next: 1k, the high-byte registers and the general-purpose gaps (above).
