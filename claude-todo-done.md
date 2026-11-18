@@ -1,3 +1,24 @@
+### LLVM codegen copies `*p = *q` of a deep aggregate of at most 16 bytes with memcpy, wrong when p and q overlap — DONE (binate `77edf865f`, 2026-11-17, work-1) (MAJOR, wrong code on bare metal; found 2026-11-17, work-1, review of the register-passed deep-aggregate change)
+
+- Symptom: with `type D` an `[4]int32` nested in 20 one-element arrays, `buf` an `[8]int32` holding 1..8,
+  `q = bit_cast(*D, &buf[0])` and `p = bit_cast(*D, &buf[1])`, `*p = *q` leaves buf `1 1 1 1 1 6` on arm32 bare metal
+  (LLVM, as `builder-comp_arm32_baremetal` builds it), not `1 1 2 3 4 6` (the right side is read whole first, spec
+  stmt.assign.parallel).  A compiler from before binate 0922dcc39 prints `1 1 2 3 4 6`.  The host prints the right
+  values too, but its IR is an `llvm.memcpy` of overlapping regions, which is undefined.
+- Cause: binate 0922dcc39 (an aggregate nested past 16 levels is a bulk one) made a deep aggregate of at most 16
+  bytes memory-backed in LLVM codegen.  common.AggLoadElision reads an S-adjacent load of at most 16 bytes in place,
+  on the ground that every backend copies such an aggregate by loading all of it before storing any ("the LLVM
+  backend as one value"), so it answers AGG_LOAD_IN_PLACE, not AGG_LOAD_IN_PLACE_OVERLAPPING, and codegen's
+  emitBulkMemStore copies from the source with emitMemCopy (rt.MemCopy on bare metal, which copies front to back).
+  Before 0922dcc39 such a value was an SSA value, loaded whole before the store.
+- Fix: in codegen's markElidedBulkLoads, mark a load read in place whose type is at most 16 bytes as overlapping
+  too (curBulkOverlapping), so its whole store copies as memmove does; add a conformance test (the program above,
+  in both overlap directions) for every LLVM mode.
+- Fixed by binate `77edf865f` (user: "Separate commit first (Recommended)", landed with "yes, go ahead"):
+  markElidedBulkLoads marks a load read in place of at most 16 bytes as overlapping, so its whole store copies as
+  memmove does.  TestSmallDeepLoadStoredWholeMoves (fails without the fix); conformance 1760 (four bytes up and
+  down) prints `1 1 1 1 1 6` on bare metal with the compiler before the fix.
+
 ### Instances formed only through an abstract instance are checked as if named — DONE (binate `53d9b85a4`, 2026-11-17, temp-5) (claimed 2026-11-17, temp-5; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
 
 With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }` and `@T` a

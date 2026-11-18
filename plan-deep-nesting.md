@@ -471,10 +471,16 @@ recursive, so far more than 75).
   bulk: the 1022-level array of managed-slices builds in 1.0 s (118 s); cmd/bnc's IR and the corpus unchanged but
   for the new conformance 1757 / 1758.  Review: the first depth walk was exponential through a zero-size array of a
   type sharing its parts (fixed); countAggregateLeaves is too (pre-existing, claude-todo LOW).
-  Next (user: "Land, then registers (Recommended)"): a deep aggregate small enough to travel in registers (an 8-byte
-  `[1]`^1022 int: 112 s) keeps the SSA form at its call boundary -- the parameter prologue loads it whole from its
-  `.agp` slot and a register return builds it with insertvalue -- so make a bulk-type register parameter
-  memory-backed in its slot and copy a bulk-type register return into the return slot; then close the plan.
+- LLVM deep aggregates, part 2 DONE: binate `4bdc46904` (landed 2026-11-17; user: "Land, then registers
+  (Recommended)", then "yes, go ahead") -- a bulk value at a register boundary is memory-backed there
+  (emit_bulk_coerced.bn: params in `.agp` / `.bv`, results in `.agRB` / `.mrRB` / `.rb`, args, captures and returns
+  copied into their slots): the 8-byte `[1]`^1022 int probe 112 s -> 0.45 s.  Its review found part 1's overlap bug
+  (memcpy for an overlapping `*p = *q` of a deep aggregate of <= 16 bytes; MAJOR, wrong on bare metal), fixed first
+  by binate `77edf865f`.
+  Next (user: "yes, make box be the next commit"): `box(w)` of a deep value (into an interface or an `@W`) still
+  loads it whole -- 56 s for a 1022-level one; boxing a many-leaf value has the same per-leaf SSA load.  Every other
+  consumer probed is clean (bit_cast, composite literal, generic, variadic, managed-slice, ==, value receiver).
+  Then close the plan.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
