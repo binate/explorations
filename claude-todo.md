@@ -7,6 +7,17 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM -O2 on aarch64: conformance 1720 (stack arguments past 2 GiB) dies with SIGSEGV — 🔴 OPEN (found 2026-11-18, work-3, validating the plan-native-frame-slots step 4d; pre-existing: binate main `eb2442a91`'s codegen fails the same way)
+
+`BINATE_FLAGS=-O2 conformance/run.sh builder-comp 1720_stack_args_past_2gib_callers` on this (aarch64) host: exit
+status 139, expected `ok`; it passes at -O0.  The program never makes its calls (`run` is false), so nothing it runs
+needs the memory.  Unverified cause: at -O2 LLVM inlines `direct` / `viaValue` / `viaClosure` into `main`, whose frame
+then holds their 1 GiB argument copies (aarch64 passes the arrays by reference, copied into the caller's frame) and
+overflows the stack at `main`'s entry.  No CI lane runs it: the -O2 lanes are x86-64, where the test expects the
+frame to be rejected (its `.error.*.x64` markers).  Fix once the cause is confirmed (a disassembly of `main` at -O2):
+keep a function with a frame past the stack's size from being inlined (`noinline`), or whatever the cause calls for;
+then decide the test's coverage on an aarch64 -O2 lane.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
