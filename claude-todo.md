@@ -2861,6 +2861,17 @@ where an argument expression ends.  Fix: find the lines of each entry's tokens -
 (ast.Annotation.NamePos), the `(` and `)` of its arguments (the file's bracket pairs), each argument's extent and
 the commas -- and count only those as held.
 
+### bnfmt drops the blank lines among an empty import group's comments — 🔴 OPEN 🟢 LOW (found 2026-11-17, temp-4, review of the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
+
+An empty import group (`import ()`, which prints nothing) with an annotation block and comments before its `(` loses
+the blank lines among them: `import "z"` / `#[x]` / `// a` / an empty line / `// b` / an empty line / `import ()` /
+`import "y"` prints `import "z"` / `// a` / `// b` / `import "y"` (checked 2026-11-17 on binate `903dee378`).  Its
+comments print on lines of their own, as a non-empty group's do, but blankBetween (print_imports.bn) counts every
+line from its `#` to its `(` as holding a token.  Fix: count only the lines of its block (all of them when it has
+entries, else those of its `#`, `[` and `]`), of its `import`, its `(` and its `)`, as for a non-empty group;
+ast.EmptyImport records only DeclPos, LParen and RParen, so the parser (parseImportDecl) must also record its
+`import`'s position and whether its block has entries (with the AST clone pin, ast_clone_test.bn).
+
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
