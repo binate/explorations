@@ -1283,6 +1283,19 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
+### A generic body's `mid.__Package()` -- `mid` an import of the generic's package that the instantiating package does not import -- is an internal error — 🔴 OPEN (found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
+
+- Symptom: `pkg/lib`'s generic `func MidName[T any](x T) *[]readonly char { return mid.__Package().Name }`,
+  instantiated in a package that imports `pkg/lib` but not `pkg/mid`, fails to compile (bnc and bni alike):
+  `panic: internal error: IR-gen has no signature for the called function pkg/mid.__Package (compiler bug)`.
+  A bare `__Package()` in the same body works (it names `pkg/lib`), and so does a call of mid's own functions.
+- Cause: the compiler-synthesized accessor's signature is registered for the module's own package and for each
+  direct import (gen_import.bn), but not for the packages registerGenericBodyDepsFlat declares for generic bodies
+  (it declares only their files' declarations).
+- Fix: declare the accessor for those packages too -- in RegisterGenericBodyDeps, or wherever plan-irgen-checker-types
+  6-6 moves that declaring (its open question: keep the pass, or declare on demand from the checker's records).
+  Test: a conformance test of the repro above, expected-fail until fixed.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
