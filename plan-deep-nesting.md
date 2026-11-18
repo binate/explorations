@@ -465,9 +465,16 @@ recursive, so far more than 75).
   marshalableType visits the (type, allowIface) pairs a type reaches from a stack, each once (a 100,000-struct ring
   through `@[]` crashed it; shared parts were checked once per path, 2^63 times for a 64-struct chain); 29 s for
   interp's tests on the arm32 Linux lane, deep ones included.
-  Step 1 (iterative semantic-type walks) is complete through every stage.  Open: the LLVM deep-aggregate question (an
-  aggregate nested past a threshold made bulk, for the 81 s 1024-level array build; proposed, not decided) and step 3
-  (a type-depth backstop), not decided.
+  Step 1 (iterative semantic-type walks) is complete through every stage.
+- LLVM deep aggregates, part 1 DONE: binate `0922dcc39` (landed 2026-11-17; user: "yes") -- isBulkAggregate also
+  counts an aggregate nested more than 16 levels (aggregateDeeperThan: nonzero-size parts, stops once known) as
+  bulk: the 1022-level array of managed-slices builds in 1.0 s (118 s); cmd/bnc's IR and the corpus unchanged but
+  for the new conformance 1757 / 1758.  Review: the first depth walk was exponential through a zero-size array of a
+  type sharing its parts (fixed); countAggregateLeaves is too (pre-existing, claude-todo LOW).
+  Next (user: "Land, then registers (Recommended)"): a deep aggregate small enough to travel in registers (an 8-byte
+  `[1]`^1022 int: 112 s) keeps the SSA form at its call boundary -- the parameter prologue loads it whole from its
+  `.agp` slot and a register return builds it with insertvalue -- so make a bulk-type register parameter
+  memory-backed in its slot and copy a bulk-type register return into the return slot; then close the plan.
 ## Decisions (2026-11-03)
 
 - Step 1, all of it, staged: user "All of them, staged (Recommended)".
