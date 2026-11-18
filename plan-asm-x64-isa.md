@@ -76,18 +76,22 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
      by the 1d review.  Also the general-purpose forms the 1j2 mnemonic sweep found missing (user, 2026-11-18:
      "your recs for the placements seem fine"): `clr reg` (clang's alias of xor reg, reg), `inb` / `inw` / `inl`
      / `outb` / `outw` / `outl` with a port number (AT&T names clang takes in Intel syntax), the `mov.s` suffix
-     (the swapped encoding) and `movnti`.
+     (the swapped encoding) and `movnti`; and the general-purpose pseudo-prefixes `{disp8}`, `{disp32}` (the
+     displacement's size) and `{rex}` (a REX prefix), which no mnemonic sweep can see (user, 2026-11-18: "yes (and
+     yes)").  In two commits: 1k1 the high-byte registers, 1k2 the rest.
 2. **x87**: every form clang takes (memory sizes, st(i) forms, the no-wait aliases).
 3. **SSE through SSE4.2**, AES, CLMUL and SHA (extend `asm/x64/sse`); MMX (`emms` and the MMX register forms)
    and 3DNow!'s `femms`, which no stage had listed; and Key Locker's XMM forms (`loadiwkey`, `aesenc128kl` ..
    `aesdec256kl`), which wait for the parser's XMM operands (user, 2026-11-18: "your recs for the placements
    seem fine").
 4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers;
-   and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-16, below).
+   and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-16, below); the pseudo-prefixes
+   `{vex}` / `{vex2}` / `{vex3}` (user 2026-11-18).
 5. **EVEX: AVX-512** (`asm/x64/avx512`): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
-   the compressed disp8*N, the 32 vector registers.
+   the compressed disp8*N, the 32 vector registers; the `{evex}` pseudo-prefix (user 2026-11-18).
 6. **APX and AMX**: r16-r31 (REX2), the EVEX-promoted general-purpose forms (new data destination, no-flags),
-   push2 / pop2, ccmp / ctest, cfcmov; the AMX tile instructions.
+   push2 / pop2, ccmp / ctest, cfcmov, the `{rex2}` / `{nf}` pseudo-prefixes (user 2026-11-18); the AMX tile
+   instructions.
 7. **32-bit address size** (`[eax]`, `[ebx + ecx*4]`, the 0x67 prefix; user 2026-10-06: "Support it, later").
 
 ## Decisions
@@ -260,4 +264,12 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   `zmmword ptr` (stage 5's size), Key Locker's XMM forms (stage 3).  `xbegin sym@PLT` on Mach-O is a BRANCH, as
   `call sym@PLT` is (the open `@PLT` entry in claude-todo.md).
 
-Next: 1k, the high-byte registers and the general-purpose gaps (above).
+- 1k1 — landed binate `f862e3ded` (2026-11-18; user: "yes (and yes)"): ah, ch, dh and bh, as x64.AH..BH, register
+  numbers of their own (20..23, encoded as 4..7 with no REX); an instruction with a REX beside one is an error, as
+  clang's.  Register operands are now checked in every core encoder (regOk: RAX..R15, or AH..BH at 8 bits, before
+  any byte) and every REX's numbers in emitRexF — an out-of-range number used to encode silently as another
+  register; JmpReg / CallReg and sse's GP <-> XMM encoders (bare numbers) check theirs.  `rex64` before an
+  instruction naming ah..dh is an error, as GNU as (clang emits it, making them spl..dil), following the prefix
+  decisions above (named in the question to land, which the user answered "yes").
+
+Next: 1k2, the general-purpose gaps and pseudo-prefixes (above).
