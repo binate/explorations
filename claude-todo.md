@@ -2839,19 +2839,6 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt drops the blank lines among the comments between an import's annotation block and `import` — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "yes") 🟢 LOW (found 2026-11-16, temp-4, working on the empty annotation block entry; pre-existing, main the same)
-
-A blank line among the comments between an import's annotation block and its `import` keyword is dropped: `#[x]` /
-`// e` / an empty line / `// f` / `import "g"` prints `// e` / `// f` together, where a declaration keeps it; and
-after an empty block (`#[]`, which bnfmt drops) a declaration also keeps a blank line before its keyword, which an
-import drops (checked 2026-11-16 on binate `576087170`).  takeImportEntry (print_imports.bn) collects these comments
-as the import's inner ones, and printImportEntry prints them one per line.  Fix: keep those blank lines as the
-declaration printer does, the lines of an empty block's `[` and `]` not counted as blank (emptyBlockGap).  A block
-comment on the import's line before `import` (`#[x] /* c */ import "b"`) prints inline after `import ` (`import /* c
-*/ "b"`): that is the import printer's rule for a comment before the path
-(TestFormatImportCommentBeforePathTravels), which keeps it moving with its import when the run is sorted, and the
-user chose to keep it for an import with a block too (2026-11-17, "Keep the rule (Recommended)").
-
 ### bnfmt drops the blank lines among a grouped import's comments before its `(` — 🟡 IN PROGRESS (claimed 2026-11-17, temp-4; user: "Next commit (Recommended)", to follow the ungrouped fix) 🟢 LOW (found 2026-11-17, temp-4, review of the ungrouped fix; pre-existing, main the same)
 
 A grouped import's comments between its annotation block and its `import (` lose the blank lines among them: `#[x]`

@@ -1,3 +1,18 @@
+### bnfmt dropped the blank lines among the comments between an import's annotation block and `import` — DONE (binate `903dee378`, 2026-11-17, temp-4; user: "yes", narrowed on "Keep the rule (Recommended)", landed on "wait 4 minutes, then go ahead"; LOW; found 2026-11-16, temp-4, working on the empty annotation block entry)
+
+bnfmt printed an import's inner comments (after its block's `#` and before its path, not inline after `import `) one
+per line, dropping the blank lines among them, which a declaration keeps, and after an empty block (`#[]`) the one
+before `import`.  printImportEntry now keeps them as a declaration's are; the lines of an empty block's `#`, `[` and
+`]` and of `import`, which an inner comment can follow (importGap), are not blank ones, nor the first lines of an
+inline comment that starts above `import` (a review found both read as blank in a first version).  An import with no
+block keeps the blank lines among the comments between `import` and its path too.  The entry first also listed `#[x]
+/* c */ import "b"` printing `import /* c */ "b"`: that is the import printer's rule for a block comment before the
+path (TestFormatImportCommentBeforePathTravels), and the user chose to keep it.  No tree file changes; over 800
+generated files every annotated import has the expected lines above it (main's bnfmt got 2,276 of 4,007 wrong), and
+the output differs from main's only by added blank lines.  Test: TestImportBlockKeepsTheBlankLinesAmongItsComments.
+A grouped import's comments before its `(` still lose theirs: "bnfmt drops the blank lines among a grouped import's
+comments before its `(`".
+
 ### Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a signature — DONE (binate `a120cd8ed`, 2026-11-17, temp-5) (claimed 2026-11-17, temp-5; user chose "Follow the spec (Recommended)") (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
 
 With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
