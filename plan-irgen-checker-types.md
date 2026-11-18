@@ -434,6 +434,41 @@ IR-gen cannot map is an internal error, never `int`.
    declaration has nothing to wait for there.  Resolves the todo entries "an incompatible redefinition of a generic
    method that a sibling still calls" and "adding a method to a generic type checks its existing instances again"
    (their sessions become e2e cases).
+   Design (2026-11-18, work-6; a Plan agent's design, its key claims checked in the code): today a generic's home
+   scope (recordGenericHome's h.Scope, recordGenericMethod's entry.Scope) is the live session scope, which
+   Scope.Define overwrites in place, and a sibling's `c.Get()` selects through the receiver type's current method set
+   (lookupVisibleMethod); clones keep no records (ast_clone.bn), so reusing the declaration-time records needs a node
+   correspondence there is none of, and a frozen scope snapshot per generic would miss same-signature replacements
+   (which must reach old bodies, as they do today) and methods.  Recommended: versioned bindings.  Each REPL input is
+   a generation (the main file 1); the session scope stamps a symbol's generation and, when a value name (variable,
+   constant, function) is bound again by another generation, keeps the old symbol in a history with its hidden name
+   `__repl_shadowed_<gen>_<name>` (`__` names are reserved, so unspellable); a same-signature function (or
+   identical-type variable) merges instead of shadowing, so old views see the replacement.  A prompt generic's home
+   becomes a view of the session scope at its generation, through which every instance check (body, signature,
+   constraint, method copy) resolves names as at its declaration.  Methods get versions keyed by T.M: a superseded
+   method stays a member of the type and its instances under its hidden spelling, and lookupVisibleMethod selects,
+   through a view, the version live at the view's generation; the checker records the selected method on method
+   selectors, which IR-gen names the callee from.  The checker answers what a shadowed declaration is registered as
+   (RegisteredName / RegisteredDeclName, by (name, generation), not the Symbol handle); IR-gen renames what it
+   registered for the old declaration (global, constant, FuncSig, a generic's emitted instances, method-value
+   wrappers) instead of forgetting it, keeps a shadowed generic declaration stashed, and names an old generic's
+   instances after its hidden name; the VM renames the old function (Vm.RenameFunc) instead of unbinding it.
+   Rollback (an undone input) truncates the history.  Constraint calls stay live (the type argument's impl).
+   Increments: 6b-1 Vm.RenameFunc (no behaviour change).  6b-2 checker generations, versions, merges, rollback and
+   the queries, computed but not consulted (object code byte-identical).  6b-3 value names follow the declaration
+   (views for function and method homes; IR-gen RegisteredName, recordedGenericHead by declaration identity, hidden
+   instance names; renames for variables, constants, functions, generic functions); e2e s3, s4 and the variable /
+   constant / function / generic-function cases.  6b-4 the method-selection record and IR-gen's use of it
+   (byte-identical).  6b-5 method versions (hidden members, view-aware selection, renames of method instances,
+   wrappers and functions; EmitShadowedMethod, ShadowReplGenericMethod and UnbindFunc go); e2e s1, s2.  6b-6 delete
+   the use recording of binate `38b4fcd11` (InstanceState.RecordUses / NewBodies / BodyIsNew, InstWork.Requeued) and
+   rewrite its tests; close the two todo entries.  Risks: manual scope walks that would see a view as an empty scope
+   (check_capture, check_instance_lenders, bni_view, bni_scope_demand), method lookups that bypass
+   lookupVisibleMethod, hidden members in listed method sets, stage 8 re-keying the method versions by type identity.
+   Open questions for the user (asked 2026-11-18): generic type / interface / alias declarations naming constants
+   (`[N]T`) use the declaration view too?; superseded generic-type methods carried for every instance (eager) or only
+   where selected?; a warning for a shadowed constant (silent today, unlike a variable)?; constraint calls stay live
+   -- confirm.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
