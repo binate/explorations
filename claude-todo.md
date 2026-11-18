@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### LLVM codegen copies `*p = *q` of a deep aggregate of at most 16 bytes with memcpy, wrong when p and q overlap — 🔴 OPEN 🟠 MAJOR (wrong code on bare metal; found 2026-11-17, work-1, review of the register-passed deep-aggregate change)
+### LLVM codegen copies `*p = *q` of a deep aggregate of at most 16 bytes with memcpy, wrong when p and q overlap — 🟡 IN PROGRESS (claimed 2026-11-17, work-1) 🟠 MAJOR (wrong code on bare metal; found 2026-11-17, work-1, review of the register-passed deep-aggregate change)
 
 - Symptom: with `type D` an `[4]int32` nested in 20 one-element arrays, `buf` an `[8]int32` holding 1..8,
   `q = bit_cast(*D, &buf[0])` and `p = bit_cast(*D, &buf[1])`, `*p = *q` leaves buf `1 1 1 1 1 6` on arm32 bare metal
