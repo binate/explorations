@@ -1,3 +1,20 @@
+### bnfmt dropped the blank lines among a grouped import's comments before its first import — DONE (binate `f6578e7c6`, 2026-11-17, temp-4; user: "Next commit (Recommended)", "Keep it (Recommended)" for the blank line before the first import, landed on "wait 4 minutes, then land"; LOW; found 2026-11-17, temp-4, review of the ungrouped fix)
+
+A grouped import's comments before its first import print above its run, as the group's, but blankBetween counted
+every line from the group's `#` to its `import` as holding a token, dropping the blank lines among them, and counted
+a `(` on a line of its own as blank.  blankBetween now asks importHolds, which for a group counts only the lines of
+its block (all from `#` to `]` when it has entries; an empty one's `#`, `[` and `]`), `import`, `(` and `)`; an
+ungrouped import still counts its whole declaration.  The blank line between the last comment and the first import
+is kept, block or not (the user's choice).  importNextLine reads the group's lines up to its path only when the last
+item placed is one of its comments (importPrinter.lastComment), so a group whose first line an import before it
+shares (`import "z"; #[x]`) is not split from it at a blank line, as when it starts a line -- a review found the
+first version splitting it, and main did so at a blank line after the `(`.  No tree file changes; over 300 generated
+files every group's comments get the expected blank lines (main: 242 of 538 groups wrong), and joining each group to
+the import before it with `;` changes no output (main: 11 of 148 differ).  Test:
+TestGroupedImportKeepsTheBlankLinesAmongItsComments, in the new print_imports_annot_test.bn with the two import
+tests moved from print_annot_test.bn.  Left to entries of their own (the user's "Own entry"): blank lines among
+comments inside a non-empty grouped block, and an empty group's (`import ()`).
+
 ### A box of an aggregate over 16 bytes loaded through a pointer or from a global copies it twice — DONE (binate `488cf4448`, 2026-11-18, work-1; user: "then do the double-copy change", landed with "yes")
 
 `box(gw)` / `box(*p)` of a bulk value over 16 bytes: common.AggLoadElision's S-adjacent shape reads a load of more
