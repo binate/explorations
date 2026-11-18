@@ -148,3 +148,9 @@ Notes for 4c-4e from the 4b review (2026-11-17):
   verifier's VERR_BAD_SCOPE; the inliner reserves each call's range of ids; SROA's field slots and copy-prop's folded
   source keep a meaningful scope; no backend emits code for the marker (the VM drops it before lowering), the native
   register caches flow through it and the inliner's size count skips it.  Nothing emits it yet.  Next: 4b.
+- Step 4b DONE: binate `867d46571` (2026-11-18).  IR-gen stamps a named variable's own slot with its scope (hidden
+  `.` slots, parameters' slots and package references stay 0) and ends the scope after its release wherever control
+  leaves it.  Jump threading and the constant-phi fold thread past scope ends, carrying them to the target.  Copy-prop
+  keeps the source's scope only when it is the destination's.  cmd/bnc before / after: LLVM objects identical at -O0 /
+  -O2, emitted LLVM IR identical for all 85 packages; native objects slightly smaller (aa64 -160 B, x64 -304, arm32
+  -1,916) from the markers' instruction positions in the allocator.  Next: 4c.
