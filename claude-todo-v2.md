@@ -155,7 +155,7 @@ The `__typeinfo.<T>` record symbol is produced at ~5 independent
 `mangle.TypeInfoName(RecvPkg, RecvTypeName)` call sites: the vtable slot-1 writers
 `collectImplVtableSlots` (LLVM, `emit_impls.bn`) and `collectImplVtableSlotsNative`
 (x64 / arm32 / aarch64 `*_iface.bn`), plus the record builder `buildTypeInfoDesc`
-(`ir/data_typeinfo.bn`, → `desc.Sym`). The tightening: store the symbol once on the
+(`irgather/irgather_typeinfo.bn`, → `desc.Sym`). The tightening: store the symbol once on the
 `TypeInfoEntry` and have both ends read it through a single registry accessor (e.g.
 `ir.TypeInfoSymFor`), so the "record symbol == slot-1 reference" invariant holds by
 construction rather than by call-site agreement.
