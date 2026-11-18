@@ -1,3 +1,39 @@
+### Instances formed only through an abstract instance are checked as if named — DONE (binate `53d9b85a4`, 2026-11-17, temp-5) (claimed 2026-11-17, temp-5; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
+
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }` and `@T` a
+Tag[[8]uint8] alone, these are rejected though nothing they form is named (spec gen.mono.instances, gen.mono.check):
+- A concrete instance an abstract instance's structure forms is built and checked as if the program named it: with
+  `type M[U any] struct { k *K[@T, U] }`, `type G3[S any, U any] struct { m *M[U]; s S }` and `func f[X any](g
+  *G3[X, int32]) int { return 0 }`, "type argument @T does not satisfy constraint Tag[[4]uint8] (in M[int32], ...)".
+  Likewise through an alias field, M's method signature, M's method body ("in M[int32].q"), and a concrete
+  interface instance's `Self` check: `type G2[S Tag[[sizeof(U)]uint8], U any]`, `interface I[U any] : Tag[[4]uint8]
+  { m(g *G2[Self, U]) int }`, `type H[V any, W any] struct { i *I[W]; v V }` and `f[X any](h *H[X, int64])` give
+  "type argument Self does not satisfy constraint Tag[[8]uint8] (interface I[int64] does not extend Tag[[8]uint8])
+  (in I[int64], ...)".  bindInstanceIn and copyGenericMethod set Generics.AbstractBound from the instance's own
+  arguments alone, and queueInstanceCheck queues its methods' bodies.
+  A fix must still judge such an instance when a chain from the program names it later: a `Self` check derived
+  there (deriveSelf) is judged there or never.
+- A generic function instance whose argument holds a length that depends on a type parameter counts as concrete:
+  `func f[X any, W any](x *X, k *K[@T, W]) int { return 0 }` with `func g[Y any](y Y) int { return
+  f[[sizeof(Y)]uint8, int32](nil, nil) }` gives "... Tag[[4]uint8] (in f[[0]uint8, int32], ...)" with g never
+  instantiated, and with g[int8] named the miss names the placeholder f[[0]uint8, int32], not f[[1]uint8, int32] via
+  g[int8].  instantiateGenericFunc forms a FuncInstance when the arguments mention no type parameter
+  (typeListMentionsTypeParam), not when they are concrete (typeArgsAbstract), and enterConcrete clears
+  AbstractBound.
+Done (binate `53d9b85a4`): an instance first formed where nothing is named (judgesConstraints) is unnamed
+(GenericInstantiation.Unnamed, FuncInstance.Unnamed): built as any, but its build (under an unnamed holder,
+check_unnamed.bn) judges no constraint, queues no check and forms only unnamed instances; its other errors are
+reported as before.  It is named when next formed where the program names what is formed (not in a resolution
+that waits): its check is queued in the class it is named in and judges its structure again until that finds no
+error (GenericInstantiation.Unjudged), a function instance's signature resolved again; the miss names the naming
+site and chain (`via G3[int8, int32]`, `via f[int8]`, `f[[1]uint8, int32] via g[int8]`).  A generic function
+instance is formed only for concrete arguments (typeArgsAbstract), and an abstract one's signature is substituted
+under an unnamed holder.  Its review's findings were fixed in the same commit, two of them on main before it: a
+held build given out from an abstract structure, and a satisfaction probe naming an unnamed instance's impl list.
+At the REPL an undone input now takes back the constraint checks it latched (latchConstraintsChecked,
+unlatchSince), so the next input naming an instance an earlier input formed reports its miss again.  The third
+part (other dependent constructs decided in such builds) stays open in claude-todo.md.
+
 ### bnfmt dropped the blank lines among the comments between an import's annotation block and `import` — DONE (binate `903dee378`, 2026-11-17, temp-4; user: "yes", narrowed on "Keep the rule (Recommended)", landed on "wait 4 minutes, then go ahead"; LOW; found 2026-11-16, temp-4, working on the empty annotation block entry)
 
 bnfmt printed an import's inner comments (after its block's `#` and before its path, not inline after `import `) one

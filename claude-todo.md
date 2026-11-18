@@ -452,33 +452,32 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Instances formed only through an abstract instance are checked as if named, and an abstract instance decides other dependent constructs — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5/session; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
+### An abstract or unnamed instance's build reports the dependent constructs other than constraints it decides — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5/session; rejects valid programs; found 2026-11-17, review of the abstract-instance judgment fix; pre-existing)
 
-With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }` and `@T` a
-Tag[[8]uint8] alone, these are rejected though nothing they form is named (spec gen.mono.instances, gen.mono.check):
-- A concrete instance an abstract instance's structure forms is built and checked as if the program named it: with
-  `type M[U any] struct { k *K[@T, U] }`, `type G3[S any, U any] struct { m *M[U]; s S }` and `func f[X any](g
-  *G3[X, int32]) int { return 0 }`, "type argument @T does not satisfy constraint Tag[[4]uint8] (in M[int32], ...)".
-  Likewise through an alias field, M's method signature, M's method body ("in M[int32].q"), and a concrete
-  interface instance's `Self` check: `type G2[S Tag[[sizeof(U)]uint8], U any]`, `interface I[U any] : Tag[[4]uint8]
-  { m(g *G2[Self, U]) int }`, `type H[V any, W any] struct { i *I[W]; v V }` and `f[X any](h *H[X, int64])` give
-  "type argument Self does not satisfy constraint Tag[[8]uint8] (interface I[int64] does not extend Tag[[8]uint8])
-  (in I[int64], ...)".  bindInstanceIn and copyGenericMethod set Generics.AbstractBound from the instance's own
-  arguments alone, and queueInstanceCheck queues its methods' bodies.
-  A fix must still judge such an instance when a chain from the program names it later: a `Self` check derived
-  there (deriveSelf) is judged there or never.
-- A generic function instance whose argument holds a length that depends on a type parameter counts as concrete:
-  `func f[X any, W any](x *X, k *K[@T, W]) int { return 0 }` with `func g[Y any](y Y) int { return
-  f[[sizeof(Y)]uint8, int32](nil, nil) }` gives "... Tag[[4]uint8] (in f[[0]uint8, int32], ...)" with g never
-  instantiated, and with g[int8] named the miss names the placeholder f[[0]uint8, int32], not f[[1]uint8, int32] via
-  g[int8].  instantiateGenericFunc forms a FuncInstance when the arguments mention no type parameter
-  (typeListMentionsTypeParam), not when they are concrete (typeArgsAbstract), and enterConcrete clears
-  AbstractBound.
-- A dependent construct other than a constraint is decided in an abstract instance's structure: `type H[V any, W
-  any] struct { a *([sizeof(W) - 5]uint8); v V }` with `func f[X any](x X) int { var h H[X, int32]; _ = h; return
-  0 }` gives "array length is too large", and so does the same length in a method's signature.
+No program names an instance with a type parameter or `Self` among its arguments, nor what only such an instance
+forms (spec gen.mono.instances), and a generic's dependent constructs are checked only for the instances named
+(gen.mono.check).  Since binate `53d9b85a4` such an instance -- abstract, or first formed where nothing is named
+(GenericInstantiation.Unnamed) -- judges no constraint, but its build still reports the other dependent
+constructs it decides:
+- `type H[V any, W any] struct { a *([sizeof(W) - 5]uint8); v V }` with `func f[X any](x X) int { var h H[X,
+  int32]; _ = h; return 0 }` gives "array length is too large"; so does the same length in a method's signature
+  (`func (g *G2[S, U]) n(a *([sizeof(U) - 5]uint8)) int` with G2[X, int32] in f's signature), or in an unnamed
+  concrete instance (`type M[U any] struct { a *([sizeof(U) - 5]uint8) }` formed through G3[X, int32]).
+- `interface A[X any] { m(x X) int }`, `interface I[U any] : A[[sizeof(U)]uint8], A[[4]uint8] { n() int }`,
+  `type G3[S any, U any] struct { i *I[U]; s S }` and `func f[X any](g *G3[X, int32]) int { return 0 }` give
+  "duplicate parent interface `A[[4]uint8]` in interface I (in I[int32], ...)".
+- `type Nn[T any] struct { next *Nn[[sizeof(T) + 1]uint8] }` formed as Nn[int32] the same way gives "generic
+  instantiation nested too deeply" (gen.mono.instances bounds only the instances named).
+A fix cannot drop every error such a build finds.  The by-value cycle rule (type.named.value-acyclic) is a
+declaration's, not a dependent construct, and the checker finds it through these builds (checkTypeByValueCycle as
+an instance is populated): `type A[T any] struct { b B[T, int32] }`, `type B[T any, U any] struct { m M[U]; t T
+}` and `type M[U any] struct { a A[U] }` are rejected only from the build of M[int32], formed in B[T, int32]'s
+structure.  A generic interface's own instantiation, with its own type parameters, is its declaration's check
+(populateInstantiatedInterface).  And an unnamed instance's build names its errors with where it was formed
+(buildNaming); named later, the re-judgment adds the naming site to the same error (instanceErrorAt), so an
+error dropped from the build must still be reported, at the naming site, then.
 
-Tests: each shape as a unit test, accepted alone and rejected with an instance named that misses.
+Tests: each shape as a unit test, accepted alone and rejected with an instance named that decides it.
 
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
