@@ -2853,6 +2853,17 @@ blankBetween, counts every line from the `#` to `import` as non-blank.  Fix: cou
 block's tokens, `import`, `(` and `)`.  Design point to settle: with a non-empty block these comments print above
 the block, while a declaration drops the blank line before its keyword.
 
+### bnfmt drops the blank lines among the comments inside a grouped import's non-empty annotation block — 🔴 OPEN 🟢 LOW (found 2026-11-17, temp-4, working on the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
+
+A grouped import's block prints on each of its imports without its comments, which print above the run as the
+group's (emitImportComments, print_imports.bn), and a blank line among those inside a block with entries is dropped:
+`#[x, // c` / an empty line / `// d` / `z]` / `import (` / `"y"` / `)` prints `// c` / `// d` / `#[x, z]` / `import
+"y"` (checked 2026-11-17 on binate `903dee378`).  blankBetween counts every line from such a block's `#` to its `]`
+as holding a token, because nothing records which of them do: the AST has no position for a block's commas or for
+where an argument expression ends.  Fix: find the lines of each entry's tokens -- its name's segments
+(ast.Annotation.NamePos), the `(` and `)` of its arguments (the file's bracket pairs), each argument's extent and
+the commas -- and count only those as held.
+
 ### bnfmt moves a comment in some lists below its statement — 🟢 LOW (found 2026-10-14, work-4, review of the statement-start fix; pre-existing)
 
 Delimited lists print the comments after their opener and between their elements (binate `1deb2f0a9`,
