@@ -7,6 +7,23 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### LLVM codegen copies `*p = *q` of a deep aggregate of at most 16 bytes with memcpy, wrong when p and q overlap — 🔴 OPEN 🟠 MAJOR (wrong code on bare metal; found 2026-11-17, work-1, review of the register-passed deep-aggregate change)
+
+- Symptom: with `type D` an `[4]int32` nested in 20 one-element arrays, `buf` an `[8]int32` holding 1..8,
+  `q = bit_cast(*D, &buf[0])` and `p = bit_cast(*D, &buf[1])`, `*p = *q` leaves buf `1 1 1 1 1 6` on arm32 bare metal
+  (LLVM, as `builder-comp_arm32_baremetal` builds it), not `1 1 2 3 4 6` (the right side is read whole first, spec
+  stmt.assign.parallel).  A compiler from before binate 0922dcc39 prints `1 1 2 3 4 6`.  The host prints the right
+  values too, but its IR is an `llvm.memcpy` of overlapping regions, which is undefined.
+- Cause: binate 0922dcc39 (an aggregate nested past 16 levels is a bulk one) made a deep aggregate of at most 16
+  bytes memory-backed in LLVM codegen.  common.AggLoadElision reads an S-adjacent load of at most 16 bytes in place,
+  on the ground that every backend copies such an aggregate by loading all of it before storing any ("the LLVM
+  backend as one value"), so it answers AGG_LOAD_IN_PLACE, not AGG_LOAD_IN_PLACE_OVERLAPPING, and codegen's
+  emitBulkMemStore copies from the source with emitMemCopy (rt.MemCopy on bare metal, which copies front to back).
+  Before 0922dcc39 such a value was an SSA value, loaded whole before the store.
+- Fix: in codegen's markElidedBulkLoads, mark a load read in place whose type is at most 16 bytes as overlapping
+  too (curBulkOverlapping), so its whole store copies as memmove does; add a conformance test (the program above,
+  in both overlap directions) for every LLVM mode.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
