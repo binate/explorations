@@ -146,6 +146,11 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   xgetbv / xsetbv, rdrand / rdseed, the fs / gs bases, rdpid, rdpkru / wrpkru, the xsave and fxsave families,
   ldmxcsr / stmxcsr, the cache-line instructions, clzero, cldemote, rsm, ud0 / ud1); 1j2 the extensions (VMX,
   SVM, TSX, CET, SGX, WAITPKG, movdiri / movdir64b, enqcmd, serialize, uintr and the rest clang takes).
+- The MSR-immediate forms (`rdmsr r64, imm32`, `wrmsrns imm32, r64`, `urdmsr`, `uwrmsr`; user, 2026-11-17: "Both
+  spellings (Recommended)"): the imm32 takes -2^31..2^32-1, so `rdmsr rax, 0xC0000080` (EFER) works as GNU as's
+  urdmsr does; clang checks it as signed and wants `-0x3fffff80`.
+- `rstorssp` / `clrssbsy` memory (user, 2026-11-17: "qword, as GNU as (Recommended)"): `qword ptr` or unsized, the
+  SDM's m64, as GNU as; clang takes `dword ptr` and rejects `qword ptr`.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
