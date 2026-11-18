@@ -415,7 +415,12 @@ IR-gen cannot map is an internal error, never `int`.
      function's instantiation, package member or generic type instance; a generic instance's call names the instance
      (genNamedCall); an instance method's receiver keeps its record.  Object code identical to the fix's for every
      conformance program and cmd/bnc (1750 fails either way); the differential has no note left (1750's went with
-     it).  6-6b remains.
+     it).  6-6 DONE: 6-6b is folded into stage 7 (user 2026-11-18: "Fold into stage 7 (Recommended)"): with a
+     checker, CurrentImportPkg, the import overlays and the bare-name precedence are no longer consulted (a probe
+     sweep after 6-6a, every conformance program and cmd/bnc's packages under bnc: no lookup by spelling in another
+     package's code); they serve only IR-gen without a checker, on which about 25 irgen unit tests (12 files) depend,
+     mostly ones registering another package's declarations.  A draft of the CurrentImportPkg deletion (31 files) is
+     archived on the binate repo's branch `archive/20261118-irgen-delete-current-import-pkg`.
 6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
    stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
    live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the
@@ -429,7 +434,10 @@ IR-gen cannot map is an internal error, never `int`.
    declaration has nothing to wait for there.  Resolves the todo entries "an incompatible redefinition of a generic
    method that a sibling still calls" and "adding a method to a generic type checks its existing instances again"
    (their sessions become e2e cases).
-7. **Delete the legacy and no-checker paths; convert the tests.**  Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
+7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
+   CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
+   bare-name precedence rules.
+   Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
    internals this deletes.
