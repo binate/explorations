@@ -404,8 +404,11 @@ IR-gen cannot map is an internal error, never `int`.
      RegisterGenericBodyDeps is not only resolution: it declares the functions (signatures and externs), variables
      and constants of the packages a generic body reaches that the consumer does not import, and a recorded reference
      needs them (a recorded function with no signature is an internal error).  The drivers' scan of those packages
-     also feeds RegisterImportedImpls (their vtables).  Open question (asked 2026-11-17): keep it as that declaration
-     pass, dropping only its resolution role, or declare on demand from the records?
+     also feeds RegisterImportedImpls (their vtables).  Decided 2026-11-17 (user: "Keep, drop resolution
+     (Recommended)"): keep it as that declaration pass, dropping only its resolution role (CurrentImportPkg, the
+     per-declaration overlay); declaring on demand from the records is revisited with 5c-2's lazy registration.
+     Its review found that a package's `__Package` accessor is declared only for direct imports with declarations
+     (MAJOR todo entry); fixed first (user: "Fix it first (Recommended)"), 6-6a rebased onto the fix.
 6b. **Decision 7: a generic keeps the bindings of its declaration** (user 2026-11-08: "yes, follow the plan" — after
    stage 6, on its records).  An instance's check and its IR use the generic's declaration-time records, never the
    live session scope: a generic method's sibling keeps calling the old (shadowed) method, a generic body keeps the

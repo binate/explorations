@@ -1300,7 +1300,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
+### A package's `__Package` accessor is declared only for the module's direct imports that have declarations: a generic body of a package reached otherwise reads the instantiating package's descriptor — 🟡 IN PROGRESS (claimed 2026-11-17, work-6; user: "Fix it first (Recommended)", before plan-irgen-checker-types 6-6a lands) (MAJOR: silent wrong output; found 2026-11-17, work-6, the stage 6-6 survey of plan-irgen-checker-types and its review; reproduced under bnc and bni built from main as of binate `61670604f`; pre-existing)
 
 - Symptom (MAJOR): main imports `pkg/a` only; `pkg/a`'s generic `A[T]` calls `pkg/b`'s generic `B[T]`, whose body
   is `return __Package().Name`.  `a.A[int](1)` prints `main`, not `pkg/b` (bnc and bni alike); the same in a
