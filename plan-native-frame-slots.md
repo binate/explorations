@@ -127,3 +127,8 @@ Notes for 4b-4d from the 4a review (2026-11-17):
 - Where the parser's frame bytes are now (all its functions, aarch64, after step 1): allocas 41%, aggregate value
   regions 28%, scalar spill slots 12% (step 2 shares these), aggregate pointer slots 9%.  So steps 3-4 (regions and
   allocas by lifetime) and 5 (IR-gen's copies) hold most of what is left of the gap to LLVM.
+- Step 4a DONE: binate `c2737d70c` (2026-11-17), after ir.bni was split for room (`62ef28c65`: the Collect* gather
+  moved to pkg/binate/irgather).  Instr.Scope, Func.NumScopes, OP_SCOPE_END, irbuild.NewScope / EmitScopeEnd, the
+  verifier's VERR_BAD_SCOPE; the inliner reserves each call's range of ids; SROA's field slots and copy-prop's folded
+  source keep a meaningful scope; no backend emits code for the marker (the VM drops it before lowering), the native
+  register caches flow through it and the inliner's size count skips it.  Nothing emits it yet.  Next: 4b.
