@@ -435,6 +435,34 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
+### Instances formed only through an abstract instance are checked as if named, and an abstract instance decides other dependent constructs — 🔴 OPEN (rejects valid programs; found 2026-11-17, temp-5, review of the abstract-instance judgment fix; pre-existing)
+
+With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }` and `@T` a
+Tag[[8]uint8] alone, these are rejected though nothing they form is named (spec gen.mono.instances, gen.mono.check):
+- A concrete instance an abstract instance's structure forms is built and checked as if the program named it: with
+  `type M[U any] struct { k *K[@T, U] }`, `type G3[S any, U any] struct { m *M[U]; s S }` and `func f[X any](g
+  *G3[X, int32]) int { return 0 }`, "type argument @T does not satisfy constraint Tag[[4]uint8] (in M[int32], ...)".
+  Likewise through an alias field, M's method signature, M's method body ("in M[int32].q"), and a concrete
+  interface instance's `Self` check: `type G2[S Tag[[sizeof(U)]uint8], U any]`, `interface I[U any] : Tag[[4]uint8]
+  { m(g *G2[Self, U]) int }`, `type H[V any, W any] struct { i *I[W]; v V }` and `f[X any](h *H[X, int64])` give
+  "type argument Self does not satisfy constraint Tag[[8]uint8] (interface I[int64] does not extend Tag[[8]uint8])
+  (in I[int64], ...)".  bindInstanceIn and copyGenericMethod set Generics.AbstractBound from the instance's own
+  arguments alone, and queueInstanceCheck queues its methods' bodies.
+  A fix must still judge such an instance when a chain from the program names it later: a `Self` check derived
+  there (deriveSelf) is judged there or never.
+- A generic function instance whose argument holds a length that depends on a type parameter counts as concrete:
+  `func f[X any, W any](x *X, k *K[@T, W]) int { return 0 }` with `func g[Y any](y Y) int { return
+  f[[sizeof(Y)]uint8, int32](nil, nil) }` gives "... Tag[[4]uint8] (in f[[0]uint8, int32], ...)" with g never
+  instantiated, and with g[int8] named the miss names the placeholder f[[0]uint8, int32], not f[[1]uint8, int32] via
+  g[int8].  instantiateGenericFunc forms a FuncInstance when the arguments mention no type parameter
+  (typeListMentionsTypeParam), not when they are concrete (typeArgsAbstract), and enterConcrete clears
+  AbstractBound.
+- A dependent construct other than a constraint is decided in an abstract instance's structure: `type H[V any, W
+  any] struct { a *([sizeof(W) - 5]uint8); v V }` with `func f[X any](x X) int { var h H[X, int32]; _ = h; return
+  0 }` gives "array length is too large", and so does the same length in a method's signature.
+
+Tests: each shape as a unit test, accepted alone and rejected with an instance named that misses.
+
 ### Whether a program is accepted depends on where a generic's method is declared, beside an abstract instance formed in a signature — 🟡 IN PROGRESS (claimed 2026-11-17, temp-5) (minor: an order-dependent rejection; found 2026-11-17, temp-5, review of the Self-only instance level change; pre-existing)
 
 With `interface Tag[X any] { tag() int }`, `type K[V Tag[[sizeof(U)]uint8], U any] struct { v V }`, `@T` a
