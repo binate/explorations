@@ -1312,7 +1312,11 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   (clang rejects it) and works under bni.
 - Cause: the compiler-synthesized accessor's signature (and extern) is registered for the module's own package
   and each direct import (gen_import.bn), skipping a package with no declarations (`len(file.Decls) == 0`), and
-  not for the packages registerGenericBodyDepsFlat declares for generic bodies.  IR-gen read a bare `__Package`
+  not for the packages registerGenericBodyDepsFlat declares for generic bodies.  And the drivers hand that pass
+  the imports of each package with generics, never the package itself: pkg/b's generic type, reached through
+  pkg/a's non-generic `func Make() @b.Gb[int]`, is instantiated in main with none of pkg/b's declarations, so
+  its method's bare `__Package` reads `main` too, and its call of pkg/b's own function is an internal error
+  (found by the fix's review).  IR-gen read a bare `__Package`
   by its spelling, in CurrentImportPkg's package when that registers one, else the module's own -- the wrong
   answer above.
 - Fix: register the accessor for every package the module registers -- generic bodies' dependencies, and
