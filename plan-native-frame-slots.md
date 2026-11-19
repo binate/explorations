@@ -166,3 +166,14 @@ Notes for 4c-4e from the 4b review (2026-11-17):
   a struct level 5,584 on aa64, from 5,760; LLVM 3,840).  Full conformance native aa64 / x64 / arm32 bare metal
   3971 / 3971 / 3926, 0 failed; arm32 Linux subset.  Next: 4d (LLVM lifetime intrinsics), 4e (statement
   temporaries); the hidden `.` slots stay unshared.
+- Step 4d DONE: binate `7b0933b2f` (2026-11-18).  The LLVM backend brackets a slot with a scope with
+  llvm.lifetime.start where its declaration runs (before the zero-fill, or before a call writing its result into
+  it ahead of its OP_ALLOC) and llvm.lifetime.end at each end of its scope and before each `ret` (a `return` leaves
+  its scopes with no OP_SCOPE_END, and LLVM brackets an inlined alloca to the call only when it has no markers, so
+  an unended slot stayed live through the caller).  The retbuf local and in-place parameter slots (GEPs, not
+  allocas) take none.  LLVM -O2 frames (aa64 / x64): parseTypeInner 640 / 648, parseStructField 720 / 728,
+  parseTypePrefix 1,968 / 1,976, parsePrimaryExpr 2,432 / 1,992 (from 3,056 / 2,600); parseType and
+  parseStructType unchanged.  Conformance 1764: a block's local starts as declared whatever its bytes held.  Full
+  LLVM -O0 3973/0, -O2 3973/1 (1720, pre-existing, filed).  The (i64 size, ptr) form is untried with an LLVM 22
+  clang (which drops the size argument; its auto-upgrade should take the old form).  Next: 4e (statement
+  temporaries), then step 5.
