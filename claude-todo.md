@@ -592,16 +592,14 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames are still about 1.5x LLVM's: IR-gen's allocas and the regions of struct values are never shared — 🟡 IN PROGRESS on steps 4 and 5 (claimed 2026-11-17, work-3; user: "then do steps 4 and 5"; found 2026-11-10, work-3; plan-native-frame-slots.md steps 3-5)
+### Native frames are still about 2x LLVM's: the regions of struct values are never shared, and IR-gen copies by-value structs — 🟡 IN PROGRESS on step 5 (claimed 2026-11-17, work-3; user: "then do steps 4 and 5"; found 2026-11-10, work-3; plan-native-frame-slots.md steps 3 and 5)
 
-After the plan's steps 1-2 (binate `20b98a7ba`, `788ff5285`) a struct-nesting level of the parser is 5,712 bytes of
-native aarch64 frame against 3,840 for LLVM -O2, parsePrimaryExpr 4,800 against 3,152.  Of the parser's native
-frame bytes, allocas are 41% and the regions of aggregate values 28% (measured after step 1): neither is ever shared
-between disjoint lifetimes, and IR-gen copies a by-value struct argument several times (`p.tok.Pos`: a load, an
-alloca and its copy helper, a reload) and copies a discarded aggregate call result into an alloca only to destroy
-it.  Next: step 3 (regions by their values' lifetimes), step 4 (allocas by lifetime: spec §18.4 mem.scope-exit ends
-a block's locals' storage when the block exits, mem.temporary a temporary's at the end of its statement -- IR-gen
-marks it, the native backends share, the LLVM backend can emit llvm.lifetime.*), step 5 (IR-gen's copies).
+After the plan's steps 1, 2 and 4 (binate `20b98a7ba`, `788ff5285`; step 4 in claude-todo-done.md)
+parsePrimaryExpr's native aarch64 frame is 3,040 bytes against 1,472 for LLVM -O2 (step 4's lifetime markers
+shrank LLVM's frames too).  Left: the regions of aggregate values are never shared between disjoint lifetimes
+(step 3; 28% of the parser's native frame bytes, measured after step 1), and IR-gen copies a by-value struct
+argument several times (`p.tok.Pos`: a load, an alloca and its copy helper, a reload) and copies a discarded
+aggregate call result into an alloca only to destroy it (step 5, in progress).
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 

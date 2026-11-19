@@ -1,3 +1,16 @@
+### Native frames: allocas whose lifetimes never meet share bytes (plan-native-frame-slots step 4) — DONE (binate `c2737d70c`, `867d46571`, `eb2442a91`, `7b0933b2f`, `f3e5e620b`, 2026-11-17 .. 2026-11-19, work-3; user: "then do steps 4 and 5")
+
+Step 4 of the frame-slots plan, in five landings: scope ids on allocas and an OP_SCOPE_END marker in the IR
+(`c2737d70c`, after the irgather split `62ef28c65` made room in ir.bni); IR-gen stamps a named variable's slot with
+its block's scope and ends the scope wherever control leaves it (`867d46571`); native PlanFrame shares the bytes of
+allocas whose lifetimes never meet (`eb2442a91`); the LLVM backend emits llvm.lifetime.start / end, and ends every
+marked slot before each `ret` (`7b0933b2f`); statement temporaries take their statement's scope, opt-in by site
+(`f3e5e620b`).  parsePrimaryExpr's native aarch64 frame went 4,800 -> 3,040 bytes (x86-64 3,056, arm32 1,920), and
+LLVM -O2's 3,056 -> 1,472 (x86-64 2,600 -> 1,064).  Conformance 1764 and 1765.  Still unscoped (the plan's
+Progress): the hidden `.` slots, gen_selector_ptr's field-address temporaries, aggregateOperandBase's copies.  Found
+on the way: LLVM -O2 on aarch64 crashes on 1720 (pre-existing) and a struct compared with a composite literal is
+never equal (pre-existing); both are open entries.
+
 ### bnfmt dropped the blank lines among the comments inside a grouped import's annotation block with entries — DONE (binate `9c33eb691`, 2026-11-18, temp-4; user: "yes, take the first one, then the second; you can do the two together as a batch, before asking to land", landed on "wait 4 minutes, then go ahead"; LOW; found 2026-11-17, temp-4)
 
 blankBetween could not tell which lines inside a block with entries hold a token (the syntax tree records no commas
