@@ -1289,6 +1289,21 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   irgen.ShadowReplConst).  Until then 6b-3a's new warning ("existing references retain the old constant") is false
   for such a constant.  Test: e2e/repl.sh cases of the two sessions above.
 
+### REPL: a function that shadows a generic and fails to load leaves the generic's instances renamed -- the next use aborts the REPL — 🔴 OPEN MAJOR (crash on a valid session; found 2026-11-19, work-6, coverage review of plan-irgen-checker-types 6b-3a; regression in binate `110b8f9eb`)
+
+- Symptom: at the prompt with a `.bni`-only package pkg/solo (`var V int`, no storage): `func K[T any]() int
+  { return 2 }`, `testing.Println(K[int]())`, then `func K() int8 { return cast(int8, solo.V) }` (fails to load,
+  as it should), then `testing.Println(K[int]())` aborts bni: "panic: internal error: IR-gen has no signature
+  for the called function main.K__bn_inst__1_N0_3_int (compiler bug)".  A bni from before `110b8f9eb` prints 2.
+- Cause: the shadowing declaration renames K's emitted instances (irgen.ShadowReplFunc: their FuncSigs, IR
+  functions and EmittedInstantiations entries) to the hidden name; when it fails, UndoReplEntry restores
+  EmittedInstantiations to the list it saved (the original names) but not the FuncSig / IR-function renames, and
+  UnshadowReplFunc finds the instances to rename back by searching that list for the hidden prefix -- so it finds
+  none.  (The pre-review version of the change wrote the list in place, and the saved list shared its backing.)
+- Fix: UnshadowReplFunc renames back exactly what ShadowReplFunc renamed (the RenamedFunc list the REPL keeps in
+  replShadow.Renamed), not what the list says.  Test: e2e/bni-only-var-undefined.sh's REPL section, with failing
+  shadowing redefinitions of a function, a constant, a variable and a generic function.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
