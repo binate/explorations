@@ -1275,6 +1275,20 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
+### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; reproduced with bni built from main as of binate `61670604f`; pre-existing)
+
+- Symptom: at the prompt, `const H float64 = 2.5`, `const J float64 = H + 1.0`, then `const H float64 = 0.5` and
+  `func hj() int { return cast(int, J * 10.0) }`: `hj()` prints 15, not 35.  Likewise `const F float64 = 1.5`,
+  `const ( A float64 = F * cast(float64, iota + 1); B )`, `const F int = 7`: a function declared after that reads
+  `(A + B) * 10.0` as 0, not 45 (one declared before reads 45).
+- Cause: such a constant is kept as its expression (Module.Consts' CONST_EXPR) and lowered again at each use
+  (genConstExpr / genDeclaredConstExpr), and the expression's names are read by spelling, so they reach the
+  session's current binding of the name, not the one the constant was declared against.
+- Fix: plan-irgen-checker-types 6b-3b -- the re-lowered expression reads its names from the checker's records,
+  named by Checker.RegisteredName, which gives the shadowed constant's hidden name (renamed in IR-gen by 6b-3a's
+  irgen.ShadowReplConst).  Until then 6b-3a's new warning ("existing references retain the old constant") is false
+  for such a constant.  Test: e2e/repl.sh cases of the two sessions above.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
