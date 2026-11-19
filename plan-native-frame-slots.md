@@ -177,3 +177,15 @@ Notes for 4c-4e from the 4b review (2026-11-17):
   LLVM -O0 3973/0, -O2 3973/1 (1720, pre-existing, filed).  The (i64 size, ptr) form is untried with an LLVM 22
   clang (which drops the size argument; its auto-upgrade should take the old form).  Next: 4e (statement
   temporaries), then step 5.
+- Step 4e DONE: binate `f3e5e620b` (2026-11-19).  IR-gen gives a statement's temporaries the statement's scope
+  (gen_scope_temps.bn), ended after its releases; opt-in by site -- a struct value's field read, an array value's
+  element read, a by-value argument's copy, an assignment's acquired and replaced values, a literal the checker did
+  not mark addressed -- because some slots outlive their statement (a borrow or addressed literal a `var` keeps, a
+  raw slice literal's backing, a `return`'s results across its defers).  A slot that becomes a variable's takes its
+  scope.  Conditions end their scope at both successors (not between compare and branch); a `return` emits no end.
+  Slots handed only to a dtor / copy get a scope of their own, ended right after it.  Backends' per-scope tables
+  became lazy.  Frames: native aa64 / x64 / arm32 parseType 608 / 656 / 416, parseTypeInner 960 / 960 / 592,
+  parseStructType 1,408 / 1,456 / 848, parseStructField 1,312 / 1,312 / 832, parseTypePrefix 1,360 / 1,408 / 944,
+  parsePrimaryExpr 3,040 / 3,056 / 1,920; LLVM -O2 aa64 / x64 parsePrimaryExpr 1,472 / 1,064 (from 2,432 / 1,992).
+  Native aa64 full conformance 3975/0, LLVM -O2 3974/1 (1720); compile time unchanged.  Not scoped yet:
+  gen_selector_ptr's field-address temps, aggregateOperandBase's copies, the hidden `.` slots.  Next: step 5.
