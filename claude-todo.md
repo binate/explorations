@@ -1275,7 +1275,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; reproduced with bni built from main as of binate `61670604f`; pre-existing)
+### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — 🟡 IN PROGRESS (claimed 2026-11-19, work-6 / session 88ffab43, with plan-irgen-checker-types 6b-3b) MAJOR (silent wrong output; found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; reproduced with bni built from main as of binate `61670604f`; pre-existing)
 
 - Symptom: at the prompt, `const H float64 = 2.5`, `const J float64 = H + 1.0`, then `const H float64 = 0.5` and
   `func hj() int { return cast(int, J * 10.0) }`: `hj()` prints 15, not 35.  Likewise `const F float64 = 1.5`,

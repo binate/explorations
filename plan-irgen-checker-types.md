@@ -478,6 +478,14 @@ IR-gen cannot map is an internal error, never `int`.
    RegisteredDeclName (a generic's by the generation its home records).  Its review: the REPL's hidden names
    (`__repl_shadowed_<InitCounter>_`) and the checker's (`__repl_shadowed_<gen>_`) share a prefix -- 6b-3 must
    switch the REPL to the checker's at once, not run both.
+   6b-3a DONE (binate `110b8f9eb`, 2026-11-19; user: "yes, go ahead"): the REPL renames what a prompt declaration
+   or a mid-session import shadows to the checker's hidden name (check.ShadowedBinding; Repl.InputGen keeps a
+   replacing redefinition from reporting an older input's shadow): a variable's global, a constant (with the
+   warning), a function and a generic function's instances (IR-gen's ShadowReplFunc, and Vm.RenameFunc at commit);
+   ShadowReplGenericFunc goes, and an import now shadows a function it takes the name of.  Methods are still
+   forgotten and unbound (6b-5).  6b-3b: the views and IR-gen's naming (RegisteredName, recordedGenericHead by
+   declaration identity, hidden instance names); it also fixes the todo MAJOR "REPL: a floating-point constant
+   computed from another constant ...", whose constants the new warning misdescribes until then.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
