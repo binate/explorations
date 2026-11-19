@@ -465,10 +465,10 @@ IR-gen cannot map is an internal error, never `int`.
    rewrite its tests; close the two todo entries.  Risks: manual scope walks that would see a view as an empty scope
    (check_capture, check_instance_lenders, bni_view, bni_scope_demand), method lookups that bypass
    lookupVisibleMethod, hidden members in listed method sets, stage 8 re-keying the method versions by type identity.
-   Open questions for the user (asked 2026-11-18): generic type / interface / alias declarations naming constants
-   (`[N]T`) use the declaration view too?; superseded generic-type methods carried for every instance (eager) or only
-   where selected?; a warning for a shadowed constant (silent today, unlike a variable)?; constraint calls stay live
-   -- confirm.
+   Decided (user 2026-11-18, all four as recommended): generic type, interface and alias declarations naming
+   constants (`[N]T`) resolve through the declaration view too ("Yes, view too"); a superseded generic-type method is
+   carried, checked and emitted for every instance ("Carry for every instance"); a shadowed constant warns, as a
+   variable does ("Yes, warn"); constraint calls stay live ("Live").
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
