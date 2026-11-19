@@ -7,6 +7,20 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A struct or array compared with a composite literal is never equal: `v == (T{...})` and `case T{...}:` take the false branch — 🔴 OPEN (MAJOR: wrong results, silently; found 2026-11-18, work-3, writing conformance 1765 for plan-native-frame-slots step 4e; pre-existing: binate main `7b0933b2f` (LLVM and native) and the bnc-0.0.17 bni give the same)
+
+- Symptom: with `v` a struct holding `{2, 3}`, `v == (Inner{x: 2, y: 3})` is false, and so is `switch v { case
+  Inner{x: 2, y: 3}: ... }` (the default runs); `v == w`, with `w` a variable holding the same literal, is true.
+  Every mode: LLVM, native aa64, and the bytecode VM (bnc-0.0.17's bni) -- IR-gen.
+- Root cause (read, not yet confirmed by a fix): genCompositeLit's value for a struct / array literal is its
+  storage's address (an alloca pointer, `isStructOrArrayAlloc`), and aggregateOperandBase (gen_eq_aggregate.bn)
+  copies an operand into a scratch slot with allocStored(b, v.Typ, v) -- for a literal it stores the POINTER into a
+  pointer-sized slot and compares those bytes (and the bytes past them) with the other operand's.  Callers:
+  genAggregateEq, aggEqOperand and genSwitch's aggregate tag (a literal tag: `switch (T{...})`).
+- Fix: in aggregateOperandBase, a `isStructOrArrayAlloc` operand is its own base (bitcast it, no copy); check the
+  other consumers of a literal's value that copy it with allocStored for the same mix-up.  Test: a conformance test
+  with the literal on either side of == / !=, a struct and an array literal, a case value, and a literal tag.
+
 ### LLVM -O2 on aarch64: conformance 1720 (stack arguments past 2 GiB) dies with SIGSEGV — 🔴 OPEN (found 2026-11-18, work-3, validating the plan-native-frame-slots step 4d; pre-existing: binate main `eb2442a91`'s codegen fails the same way)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp 1720_stack_args_past_2gib_callers` on this (aarch64) host: exit
