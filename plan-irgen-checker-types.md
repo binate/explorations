@@ -471,6 +471,13 @@ IR-gen cannot map is an internal error, never `int`.
    variable does ("Yes, warn"); constraint calls stay live ("Live").
    6b-1 DONE (binate `f9d8731be`, 2026-11-18; user: "yes, go ahead"): Vm.RenameFunc (refuses a bound new name,
    fails loud on a broken index key; the index's invariant docs say which paths free a Name a key borrows).
+   6b-2 DONE (binate `540f072ae`, 2026-11-19; user: "wait 4 minutes, then land"): generations (a prompt
+   declaration, a const-group member, a retry, a mid-session import), the versioned session scope with its
+   history, the function and variable merges (a variable records its merge, so both its symbols answer), the
+   undo of a name's versions (restoreName), and the queries ReplHistoryLen / ReplShadowsSince / RegisteredName /
+   RegisteredDeclName (a generic's by the generation its home records).  Its review: the REPL's hidden names
+   (`__repl_shadowed_<InitCounter>_`) and the checker's (`__repl_shadowed_<gen>_`) share a prefix -- 6b-3 must
+   switch the REPL to the checker's at once, not run both.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
