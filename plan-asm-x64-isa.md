@@ -280,9 +280,9 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   after it takes R_X86_64_REX_GOTPCRELX), after a statement's labels or after a prefix but lock / rep.  Kept
   differences: {rex}'s 40 goes after legacy prefixes and merges into a REX of the instruction's own, as GNU as
   (clang writes REX bytes the processor ignores: `{rex} fs mov` 40 64, `rex64 {rex} mov` 48 40); {disp16} and
-  GNU as's {load} / {store} are rejected, as clang (asked when landing; not answered yet); on Mach-O `mov eax,
+  GNU as's {load} / {store} are rejected, as clang (user, 2026-11-18: "Reject, as clang (Recommended)"); on Mach-O `mov eax,
   [rbx + x]` (a sign-extended disp32 against a symbol) is rejected — clang takes that one form as
   X86_64_RELOC_UNSIGNED, zero-extended, and rejects `add eax, [rbx + x]` and the indexed forms with "32-bit
   absolute addressing is not supported in 64-bit mode", as bnas does them all.
 
-Next: stage 2, x87 (asm/x64/x87 and its parser).  Open: {load} / {store} (above).
+Next: stage 2, x87 (asm/x64/x87 and its parser).
