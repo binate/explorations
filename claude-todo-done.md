@@ -1,3 +1,28 @@
+### bnfmt dropped the blank lines among the comments inside a grouped import's annotation block with entries — DONE (binate `9c33eb691`, 2026-11-18, temp-4; user: "yes, take the first one, then the second; you can do the two together as a batch, before asking to land", landed on "wait 4 minutes, then go ahead"; LOW; found 2026-11-17, temp-4)
+
+blankBetween could not tell which lines inside a block with entries hold a token (the syntax tree records no commas
+and no argument ends), so it counted every one from `#` to `]`, dropping the blank lines among the comments there.
+Instead of inferring them from the tree, as the entry proposed, the lexer now records, in comment-collecting mode
+only, the lines that hold a token (Lexer.TokenLines, token_lines.bn; ascending, each once, robust to the parser's
+Save/Restore), the parser copies them to ast.File.TokenLines, and importHolds counts a group's line only when it
+holds a token (holdsToken).  A file parsed without comments records none, and its groups count their lines as before
+(a review found the first version reading a group's `)` line as blank there).  Over 300 generated files with 172
+such blocks every group comes out right (main: 187 of 547 wrong); the tree and the earlier corpora do not change.
+Tests: TestGroupedImportKeepsTheBlankLinesAmongItsComments, TestGroupedImportWithoutTokenLines, lexer
+token_lines_test.bn.
+
+### bnfmt dropped the blank lines among an empty import group's comments — DONE (binate `943c09474`, 2026-11-18, temp-4; same batch and approval as `9c33eb691`; LOW; found 2026-11-17, temp-4)
+
+An empty group (`import ()`) between imports prints nothing, and its comments print on lines of their own, but
+blankBetween counted every line from its `#` to its `(` as holding a token.  emptyHolds now counts only its token
+lines (the record above, which made the entry's proposed EmptyImport fields unnecessary) when one of its comments is
+next to the line -- the last comment placed, or `next`, the comment after the line, a pending comment of the next
+import included (importNextLine returns its position; a review found it left out at first) -- and otherwise its
+whole declaration, parentheses included, so a blank line inside a comment-less empty group no longer splits the
+imports around it, as it did on main.  Over 300 generated files with empty groups every group comes out right (main:
+66 of 546 wrong).  Test: TestEmptyImportGroupKeepsTheBlankLinesAmongItsComments.  Three other placements of an empty
+group's comments, the same on main, are "bnfmt moves an empty import group's comments in three layouts".
+
 ### bnfmt dropped the blank lines among a grouped import's comments before its first import — DONE (binate `f6578e7c6`, 2026-11-17, temp-4; user: "Next commit (Recommended)", "Keep it (Recommended)" for the blank line before the first import, landed on "wait 4 minutes, then land"; LOW; found 2026-11-17, temp-4, review of the ungrouped fix)
 
 A grouped import's comments before its first import print above its run, as the group's, but blankBetween counted

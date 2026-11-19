@@ -2781,28 +2781,6 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt drops the blank lines among the comments inside a grouped import's non-empty annotation block — 🟡 IN PROGRESS (claimed 2026-11-18, temp-4; user: "yes, take the first one, then the second") 🟢 LOW (found 2026-11-17, temp-4, working on the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
-
-A grouped import's block prints on each of its imports without its comments, which print above the run as the
-group's (emitImportComments, print_imports.bn), and a blank line among those inside a block with entries is dropped:
-`#[x, // c` / an empty line / `// d` / `z]` / `import (` / `"y"` / `)` prints `// c` / `// d` / `#[x, z]` / `import
-"y"` (checked 2026-11-17 on binate `903dee378`).  blankBetween counts every line from such a block's `#` to its `]`
-as holding a token, because nothing records which of them do: the AST has no position for a block's commas or for
-where an argument expression ends.  Fix: find the lines of each entry's tokens -- its name's segments
-(ast.Annotation.NamePos), the `(` and `)` of its arguments (the file's bracket pairs), each argument's extent and
-the commas -- and count only those as held.
-
-### bnfmt drops the blank lines among an empty import group's comments — 🟡 IN PROGRESS (claimed 2026-11-18, temp-4; user: "yes, take the first one, then the second") 🟢 LOW (found 2026-11-17, temp-4, review of the grouped import blank lines; pre-existing, main the same; split out on the user's "Own entry (Recommended)")
-
-An empty import group (`import ()`, which prints nothing) with an annotation block and comments before its `(` loses
-the blank lines among them: `import "z"` / `#[x]` / `// a` / an empty line / `// b` / an empty line / `import ()` /
-`import "y"` prints `import "z"` / `// a` / `// b` / `import "y"` (checked 2026-11-17 on binate `903dee378`).  Its
-comments print on lines of their own, as a non-empty group's do, but blankBetween (print_imports.bn) counts every
-line from its `#` to its `(` as holding a token.  Fix: count only the lines of its block (all of them when it has
-entries, else those of its `#`, `[` and `]`), of its `import`, its `(` and its `)`, as for a non-empty group;
-ast.EmptyImport records only DeclPos, LParen and RParen, so the parser (parseImportDecl) must also record its
-`import`'s position and whether its block has entries (with the AST clone pin, ast_clone_test.bn).
-
 ### bnfmt moves an empty import group's comments in three layouts — 🔴 OPEN 🟢 LOW (found 2026-11-18, temp-4, review of the empty group blank lines; pre-existing, main the same)
 
 An empty import group (`import ()`) prints nothing, and some of its comments end up elsewhere (checked 2026-11-18 on
