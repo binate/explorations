@@ -469,6 +469,8 @@ IR-gen cannot map is an internal error, never `int`.
    constants (`[N]T`) resolve through the declaration view too ("Yes, view too"); a superseded generic-type method is
    carried, checked and emitted for every instance ("Carry for every instance"); a shadowed constant warns, as a
    variable does ("Yes, warn"); constraint calls stay live ("Live").
+   6b-1 DONE (binate `f9d8731be`, 2026-11-18; user: "yes, go ahead"): Vm.RenameFunc (refuses a bound new name,
+   fails loud on a broken index key; the index's invariant docs say which paths free a Name a key borrows).
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
