@@ -1,3 +1,20 @@
+### bnfmt moved an empty import group's comments in two layouts — DONE (binate `5be37d018`, `77a72e9d5`, 2026-11-20, temp-4; user: "work on the related open entry", narrowed on "Drop it (Recommended)", landed on "wait 3 minutes, then go ahead"; LOW; found 2026-11-18, temp-4, review of the empty group blank lines)
+
+An empty group (`import ()`) prints nothing, and two of its comments went elsewhere: one on the previous import's
+line became that import's trailing comment (`import "z"; import ( // c` printed `import "z" // c`), and a block
+comment inside it ending on the next import's line moved onto that line after `import` (`import ( /* c` / `*/ ) ;
+import "b"` printed `import /* c` / `*/ "b"`).  An import's trail now ends at the next empty group's start
+(emptyGroupAfter), and a comment ending on an import's line goes inline only when no empty group lies between it
+and the import (emptyGroupBetween), so the group's comments print on lines of their own, as a non-empty group's do;
+a comment after the group's `)` still goes inline.  A review found the second rule missed a comment before the
+group on the import's line (`/* a */ import ( /* b */ ) ; import "c"`), and that the package clause took an empty
+group's comment as its trail the same way (`package "p"; import ( /* d */ ) ; import "a"`); printPackageClause now
+ends its trail at the first empty group too.  The import section's line reading moved to print_imports_lines.bn
+(`77a72e9d5`; print_imports.bn was at 461 lines).  Joining each empty group onto the previous import's line with
+`;` changes no output over 134 generated files (main: 7 differ).  Test: TestEmptyImportGroupCommentIsItsOwn.  The
+third layout first listed, a blank line above the comments of an empty group that ends the section, is the rule for
+any comment after the last import (TestFormatAnnotatedGroupHeaderComment); the user kept it.
+
 ### REPL: a function that shadows a generic and fails to load leaves the generic's instances renamed -- the next use aborts the REPL — DONE (binate `824dfad0f`, 2026-11-20, work-6; user: "let's fix it now", landed on "wait 4 minutes, then go ahead"; MAJOR (crash on a valid session); found 2026-11-19, work-6, coverage review of plan-irgen-checker-types 6b-3a; regression in binate `110b8f9eb`)
 
 - Symptom: at the prompt with a `.bni`-only package pkg/solo (`var V int`, no storage): `func K[T any]() int
