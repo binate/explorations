@@ -167,6 +167,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   relics fdisi / feni / fsetpm and their fn forms are rejected, as clang ("Reject, as clang (Recommended)").  A bare
   fadd / fsub / fmul / fdiv is faddp / fsubp / fmulp / fdivp st(1), st, as clang ("Take them, as clang
   (Recommended)"; GNU as rejects them).
+- Stage 3 (user, 2026-11-21): asm/x64/sse grows as an instruction table — one row per encoding form (mnemonic,
+  prefix, map, opcode, operand classes, imm) and one encoder matching the operands against a mnemonic's rows, the
+  parser looking a mnemonic up; XMM0..15 and new MMX registers MM0..7 as operands; native's int API stays as it is
+  ("Instruction table (Recommended)").  Landed in four commits ("Four commits (Recommended)"): 3a XMM operands and
+  the SSE / SSE2 floating point (arithmetic, compares, conversions, moves, shuffles, the .s forms); 3b SSE2 packed
+  integer and MMX; 3c SSE3, SSSE3, SSE4.1, SSE4.2; 3d AES, CLMUL, SHA, GFNI's SSE forms, Key Locker's XMM forms,
+  SSE4a and 3DNow! with emms / femms.  (GFNI, SSE4a and 3DNow! were found by the mnemonic sweep: 310 names clang
+  takes with XMM or MMX operands.)
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
