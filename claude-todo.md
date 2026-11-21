@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### A struct or array compared with a composite literal is never equal: `v == (T{...})` and `case T{...}:` take the false branch — 🔴 OPEN (MAJOR: wrong results, silently; found 2026-11-18, work-3, writing conformance 1765 for plan-native-frame-slots step 4e; pre-existing: binate main `7b0933b2f` (LLVM and native) and the bnc-0.0.17 bni give the same)
+### A struct or array compared with a composite literal is never equal: `v == (T{...})` and `case T{...}:` take the false branch — 🟡 IN PROGRESS (claimed 2026-11-20, work-3; user: "take the struct-literal equality bug on next") (MAJOR: wrong results, silently; found 2026-11-18, work-3, writing conformance 1765 for plan-native-frame-slots step 4e; pre-existing: binate main `7b0933b2f` (LLVM and native) and the bnc-0.0.17 bni give the same)
 
 - Symptom: with `v` a struct holding `{2, 3}`, `v == (Inner{x: 2, y: 3})` is false, and so is `switch v { case
   Inner{x: 2, y: 3}: ... }` (the default runs); `v == w`, with `w` a variable holding the same literal, is true.
