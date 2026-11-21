@@ -1289,7 +1289,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   irgen.ShadowReplConst).  Until then 6b-3a's new warning ("existing references retain the old constant") is false
   for such a constant.  Test: e2e/repl.sh cases of the two sessions above.
 
-### REPL: a function that shadows a generic and fails to load leaves the generic's instances renamed -- the next use aborts the REPL — 🔴 OPEN MAJOR (crash on a valid session; found 2026-11-19, work-6, coverage review of plan-irgen-checker-types 6b-3a; regression in binate `110b8f9eb`)
+### REPL: a function that shadows a generic and fails to load leaves the generic's instances renamed -- the next use aborts the REPL — 🟡 IN PROGRESS (claimed 2026-11-20, work-6 / session 88ffab43) MAJOR (crash on a valid session; found 2026-11-19, work-6, coverage review of plan-irgen-checker-types 6b-3a; regression in binate `110b8f9eb`)
 
 - Symptom: at the prompt with a `.bni`-only package pkg/solo (`var V int`, no storage): `func K[T any]() int
   { return 2 }`, `testing.Println(K[int]())`, then `func K() int8 { return cast(int8, solo.V) }` (fails to load,
