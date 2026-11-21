@@ -161,6 +161,12 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   urdmsr does; clang checks it as signed and wants `-0x3fffff80`.
 - `rstorssp` / `clrssbsy` memory (user, 2026-11-17: "qword, as GNU as (Recommended)"): `qword ptr` or unsized, the
   SDM's m64, as GNU as; clang takes `dword ptr` and rejects `qword ptr`.
+- x87 (stage 2; user, 2026-11-20): swapped operands on the non-commutative popping forms (`fsubp st, st(1)`,
+  fsubrp / fdivp / fdivrp) are an error, as GNU as ("Reject, as GNU as (Recommended)"; clang encodes them as
+  `fsubp st(1), st`, the other operation than written); faddp / fmulp take either order, as both.  The 8087 / 287
+  relics fdisi / feni / fsetpm and their fn forms are rejected, as clang ("Reject, as clang (Recommended)").  A bare
+  fadd / fsub / fmul / fdiv is faddp / fsubp / fmulp / fdivp st(1), st, as clang ("Take them, as clang
+  (Recommended)"; GNU as rejects them).
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
