@@ -11,9 +11,11 @@ group on the import's line (`/* a */ import ( /* b */ ) ; import "c"`), and that
 group's comment as its trail the same way (`package "p"; import ( /* d */ ) ; import "a"`); printPackageClause now
 ends its trail at the first empty group too.  The import section's line reading moved to print_imports_lines.bn
 (`77a72e9d5`; print_imports.bn was at 461 lines).  Joining each empty group onto the previous import's line with
-`;` changes no output over 134 generated files (main: 7 differ).  Test: TestEmptyImportGroupCommentIsItsOwn.  The
-third layout first listed, a blank line above the comments of an empty group that ends the section, is the rule for
-any comment after the last import (TestFormatAnnotatedGroupHeaderComment); the user kept it.
+`;` changes no output over 134 generated files (main: 7 differ).  Test: TestEmptyImportGroupCommentIsItsOwn, and
+TestPackageClauseTrailEndsAtAnEmptyImportGroup for the package clause (binate `1f6bafb68`, the review of its
+coverage: with either condition of the clause's bound dropped, every format test passed).  The third layout first
+listed, a blank line above the comments of an empty group that ends the section, is the rule for any comment after
+the last import (TestFormatAnnotatedGroupHeaderComment); the user kept it.
 
 ### REPL: a function that shadows a generic and fails to load leaves the generic's instances renamed -- the next use aborts the REPL — DONE (binate `824dfad0f`, 2026-11-20, work-6; user: "let's fix it now", landed on "wait 4 minutes, then go ahead"; MAJOR (crash on a valid session); found 2026-11-19, work-6, coverage review of plan-irgen-checker-types 6b-3a; regression in binate `110b8f9eb`)
 
