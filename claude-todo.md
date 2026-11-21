@@ -1274,36 +1274,6 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: a const or var group typed at the prompt accepts a name declared twice — 🟡 IN PROGRESS (claimed 2026-11-20, work-6) MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b; found 2026-11-20, work-6, review of that change; pre-existing)
-
-- Symptom: at the prompt, `const ( A int = 1; A int = 2 )` is accepted (the shadowing warning printed twice), and
-  `var ( b int = 1; b int = 2 )` silently, where a file reports "A redeclared in this block".  The values read back
-  are wrong: after `const ( X float64 = 1.5; Y float64 = X * 2.0; X float64 = 9.0 )`, `cast(int, Y * 10.0)` prints
-  180 (the checker's Y is 3.0, so 30).  With IR-gen naming a record by its registered name (6b-3b's first commit,
-  not yet landed) the same session panics: "IR-gen has no the package constant __repl_shadowed_4_X"; with an
-  earlier `const X float64 = 0.1` it prints 2.
-- Cause: the checker checks a prompt group member by member, each a generation of its own (checkGroupDeclTentative
-  calls checkDeclsTentative on one member), so checkDuplicateDecls never sees two members, and the second X is
-  taken for a shadowing redefinition of the first.  The REPL then renames for both members (shadowRebound, before
-  GenDecl) the one shadow ShadowedBinding reports, and genConstGroup registers both members as "X".
-- Fix: reject a name declared twice in a prompt group, as a file does: check the group's members for duplicates
-  (checkDuplicateDecls over d.Decls) in CheckDeclInScope before the members are checked.  Tests: a check unit test
-  and e2e/repl.sh cases (const group, var group).
-
-### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — 🟡 IN PROGRESS (claimed 2026-11-19, work-6 / session 88ffab43, with plan-irgen-checker-types 6b-3b) MAJOR (silent wrong output; found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; reproduced with bni built from main as of binate `61670604f`; pre-existing)
-
-- Symptom: at the prompt, `const H float64 = 2.5`, `const J float64 = H + 1.0`, then `const H float64 = 0.5` and
-  `func hj() int { return cast(int, J * 10.0) }`: `hj()` prints 15, not 35.  Likewise `const F float64 = 1.5`,
-  `const ( A float64 = F * cast(float64, iota + 1); B )`, `const F int = 7`: a function declared after that reads
-  `(A + B) * 10.0` as 0, not 45 (one declared before reads 45).
-- Cause: such a constant is kept as its expression (Module.Consts' CONST_EXPR) and lowered again at each use
-  (genConstExpr / genDeclaredConstExpr), and the expression's names are read by spelling, so they reach the
-  session's current binding of the name, not the one the constant was declared against.
-- Fix: plan-irgen-checker-types 6b-3b -- the re-lowered expression reads its names from the checker's records,
-  named by Checker.RegisteredName, which gives the shadowed constant's hidden name (renamed in IR-gen by 6b-3a's
-  irgen.ShadowReplConst).  Until then 6b-3a's new warning ("existing references retain the old constant") is false
-  for such a constant.  Test: e2e/repl.sh cases of the two sessions above.
-
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never

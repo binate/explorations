@@ -486,8 +486,14 @@ IR-gen cannot map is an internal error, never `int`.
    forgotten and unbound (6b-5).  A follow-up (binate `824dfad0f`, 2026-11-20; user: "let's fix it now") renames
    back exactly what a failed shadowing declaration renamed (a generic's instances stayed renamed, and the next
    use aborted the REPL).  6b-3b: the views and IR-gen's naming (RegisteredName, recordedGenericHead by
-   declaration identity, hidden instance names); it also fixes the todo MAJOR "REPL: a floating-point constant
-   computed from another constant ...", whose constants the new warning misdescribes until then.
+   declaration identity, hidden instance names), in three commits.  C1 DONE (binate `26767b035`, 2026-11-21;
+   user: "wait 4 minutes, then go ahead"): IR-gen names a recorded symbol of its own package by its registered
+   name (recordedSymName), so a CONST_EXPR constant's re-lowered initializer reads the shadowed constant (the todo
+   MAJOR "a floating-point constant computed from another constant ..." is done).  Its review found that a prompt
+   group declaring a name twice was taken member by member for a redefinition (wrong values; a panic with C1);
+   fixed ahead of C1 in the same landing (binate `93c8f4048`; user: "yes, fix it now"): such a group is rejected,
+   as in a file (CheckDeclInScope's rejectRedeclaredMembers; Checker.CheckGroupNames for the REPL's split var and
+   type groups).  Left: C2 (the universe split) and C3 (the views).
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.

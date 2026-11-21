@@ -1,3 +1,42 @@
+### REPL: a const or var group typed at the prompt accepts a name declared twice — DONE (binate `93c8f4048`, 2026-11-21, work-6; user: "yes, fix it now", landed on "wait 4 minutes, then go ahead"; MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b); found 2026-11-20, work-6, review of that change; pre-existing)
+
+- Symptom: at the prompt, `const ( A int = 1; A int = 2 )` was accepted (the shadowing warning printed twice), and
+  `var ( b int = 1; b int = 2 )` silently, where a file reports "A redeclared in this block".  The values read back
+  were wrong: after `const ( X float64 = 1.5; Y float64 = X * 2.0; X float64 = 9.0 )`, `cast(int, Y * 10.0)` printed
+  180 (the checker's Y is 3.0, so 30).  With IR-gen naming a record by its registered name (6b-3b's first commit,
+  binate `26767b035`, landed right after this fix) the same session panicked: "IR-gen has no the package constant
+  __repl_shadowed_4_X".
+- Cause: a prompt group is taken one member at a time -- the checker checks a const group member by member, each a
+  generation of its own (checkGroupDeclTentative), and the REPL evaluates a var or type group's members as entries
+  of their own (promptDeclUnits) -- so checkDuplicateDecls never saw two members, and the later of two members of
+  one name was taken for a redefinition of the earlier.
+- Fix: CheckDeclInScope runs checkDuplicateDecls over a group's members first (rejectRedeclaredMembers) and rejects
+  such a group unchecked, with a file's error; the REPL asks the same of a var or type group through the new
+  Checker.CheckGroupNames before it evaluates the first member, so the group binds nothing.  The first version
+  checked only in CheckDeclInScope, and its review found var groups still accepted (split before the checker sees
+  them).  Tests: check's TestCheckDeclInScopeConstGroupRedeclared and TestCheckGroupNames, repl's
+  TestVarGroupNameDeclaredTwiceRejected, e2e/repl.sh group-name-declared-twice.  A type group declaring a name twice
+  (`type ( T int; T bool )`) is unchanged: checkDuplicateDecls leaves type pairs to checkTypeRedeclaration (a forward
+  `type T` and its definition are legal), so the first T binds and the second reports "cannot redefine type T", as
+  a failing member of a split group keeps the members before it.
+
+### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — DONE (binate `26767b035`, 2026-11-21, work-6 / session 88ffab43, plan-irgen-checker-types 6b-3b's first commit; landed on "wait 4 minutes, then go ahead"; MAJOR (silent wrong output); found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; pre-existing)
+
+- Symptom: at the prompt, `const H float64 = 2.5`, `const J float64 = H + 1.0`, then `const H float64 = 0.5` and
+  `func hj() int { return cast(int, J * 10.0) }`: `hj()` printed 15, not 35.  Likewise `const F float64 = 1.5`,
+  `const ( A float64 = F * cast(float64, iota + 1); B )`, `const F int = 7`: a function declared after that read
+  `(A + B) * 10.0` as 0, not 45 (one declared before read 45).
+- Cause: such a constant is kept as its expression (Module.Consts' CONST_EXPR) and lowered again at each use
+  (genConstExpr / genDeclaredConstExpr), and the expression's names were read by spelling, so they reached the
+  session's current binding of the name, not the one the constant was declared against.
+- Fix: recordedValue, recordedMemberName and recordedFuncRef name a symbol of the module's own package through
+  recordedSymName, which asks Checker.RegisteredName for the binding's registered name -- the hidden name once it
+  is shadowed, which IR-gen renames the shadowed constant to (irgen.ShadowReplConst) -- so the re-lowered
+  expression reads the constant it was checked against, and 6b-3a's warning ("existing references retain the old
+  constant") holds for such a constant.  Symbols of other packages keep their qualified names.  Tests: irgen's
+  TestRecordedValueShadowedConst; e2e/repl.sh shadow-const-float-initializer and
+  shadow-const-float-group-initializer.
+
 ### bnfmt moved an empty import group's comments in two layouts — DONE (binate `5be37d018`, `77a72e9d5`, 2026-11-20, temp-4; user: "work on the related open entry", narrowed on "Drop it (Recommended)", landed on "wait 3 minutes, then go ahead"; LOW; found 2026-11-18, temp-4, review of the empty group blank lines)
 
 An empty group (`import ()`) prints nothing, and two of its comments went elsewhere: one on the previous import's
