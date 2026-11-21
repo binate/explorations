@@ -1274,6 +1274,22 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
+### REPL: a const or var group typed at the prompt accepts a name declared twice — 🔴 OPEN MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b; found 2026-11-20, work-6, review of that change; pre-existing)
+
+- Symptom: at the prompt, `const ( A int = 1; A int = 2 )` is accepted (the shadowing warning printed twice), and
+  `var ( b int = 1; b int = 2 )` silently, where a file reports "A redeclared in this block".  The values read back
+  are wrong: after `const ( X float64 = 1.5; Y float64 = X * 2.0; X float64 = 9.0 )`, `cast(int, Y * 10.0)` prints
+  180 (the checker's Y is 3.0, so 30).  With IR-gen naming a record by its registered name (6b-3b's first commit,
+  not yet landed) the same session panics: "IR-gen has no the package constant __repl_shadowed_4_X"; with an
+  earlier `const X float64 = 0.1` it prints 2.
+- Cause: the checker checks a prompt group member by member, each a generation of its own (checkGroupDeclTentative
+  calls checkDeclsTentative on one member), so checkDuplicateDecls never sees two members, and the second X is
+  taken for a shadowing redefinition of the first.  The REPL then renames for both members (shadowRebound, before
+  GenDecl) the one shadow ShadowedBinding reports, and genConstGroup registers both members as "X".
+- Fix: reject a name declared twice in a prompt group, as a file does: check the group's members for duplicates
+  (checkDuplicateDecls over d.Decls) in CheckDeclInScope before the members are checked.  Tests: a check unit test
+  and e2e/repl.sh cases (const group, var group).
+
 ### REPL: a floating-point constant computed from another constant reads that constant's later redefinition — 🟡 IN PROGRESS (claimed 2026-11-19, work-6 / session 88ffab43, with plan-irgen-checker-types 6b-3b) MAJOR (silent wrong output; found 2026-11-19, work-6, review of plan-irgen-checker-types 6b-3a; reproduced with bni built from main as of binate `61670604f`; pre-existing)
 
 - Symptom: at the prompt, `const H float64 = 2.5`, `const J float64 = H + 1.0`, then `const H float64 = 0.5` and
