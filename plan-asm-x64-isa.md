@@ -291,4 +291,16 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   X86_64_RELOC_UNSIGNED, zero-extended, and rejects `add eax, [rbx + x]` and the indexed forms with "32-bit
   absolute addressing is not supported in 64-bit mode", as bnas does them all.
 
-Next: stage 2, x87 (asm/x64/x87 and its parser).
+- Stage 2 (x87) — landed binate `7ac5508c0` (2026-11-20; user: "yes, go ahead; then continue"): every x87
+  instruction clang takes in 64-bit mode in asm/x64/x87 (the stack registers St(i), ST0..ST7 numbered 64..71; the
+  loads and stores; the arithmetic with Intel's crossed DC / DE sub / subr and div / divr; the comparisons; the
+  stack, fcmov, the transcendental and constant instructions; the control word, environment, state and status
+  word, the waiting forms FWAIT first) and its parser (parse/x64_x87.bn: `st` / `st(i)` with clang's index errors,
+  the operands clang implies where none are written, a memory size choosing the form).  Kept differences: the x87
+  decisions above; lock / rep before them (GNU as).  Found by its review and fixed before landing: a waiting
+  form's segment override went on the FWAIT (`fstcw word ptr fs:[rax]` 64 9B ..; now 9B 64 .., as clang and GNU
+  as).  General parser gaps the review found are in claude-todo.md (the x86-64 parser coverage entry: float /
+  double / long ptr, ptr required, `offset st`).
+
+Next: stage 3, SSE through SSE4.2, AES, CLMUL, SHA, MMX and Key Locker's XMM forms (extend asm/x64/sse and the
+parser, which reads no XMM operand yet).
