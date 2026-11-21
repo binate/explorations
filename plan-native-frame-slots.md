@@ -119,6 +119,23 @@ Notes for 4c-4e from the 4b review (2026-11-17):
 - sink_extract and the aggregate-load elision treat any scope end as a barrier; only the source's own scope needs to
   be one.
 
+## Step 5 notes (2026-11-20)
+
+- Part 2 ("pass a field read by value without the alloca round trip") was built and measured, then dropped (user:
+  "Drop (B)").  Retaining the fields in place and passing the load made frames LARGER: native aa64 parseTypePrefix
+  1,088 -> 1,440, parsePrimaryExpr 2,640 -> 2,784 (x64 and arm32 alike), LLVM -O2 x86-64 parsePrimaryExpr 936 ->
+  1,240 (LLVM aa64 1,344 -> 1,248).  Root cause: a struct that size goes by reference to a caller-made copy on every
+  target.  Since 4e IR-gen's slot copy is that copy -- the store into it reads the source in place, the slot is
+  statement-scoped (shared), and the backends pass it directly (LastUseArgLoads / byval) -- while without it
+  each backend makes an argument copy of its own per call, unshared (native's are regions: step 3).  Revisit after
+  step 3, or for register-passed structs (an ABI question IR-gen cannot ask).  The code, with the OpWritesNothing
+  move to iropcode it needed (also dropped), is kept on a dated archive branch of the binate repo.
+- Part 1 (destroy a struct temporary where it is) needed `ir.Instr.ArgsNotKept` on dtor / copy helper calls: a home
+  is handed to its dtor, and CallResultSlots refused any slot whose address leaves the function, so a call's result
+  landed in a region and was copied into the home (native frames grew until the mark was added).  The mark needed
+  room in ir.bni (955 / 1000 lines): the interface-registry queries moved to pkg/binate/iriface (user: "Split
+  ir.bni first").
+
 ## Progress
 
 - 2026-11-10: measured (above); step 1 started.
