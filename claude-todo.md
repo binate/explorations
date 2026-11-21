@@ -2822,7 +2822,7 @@ has the same gap.
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt moves an empty import group's comments in three layouts — 🔴 OPEN 🟢 LOW (found 2026-11-18, temp-4, review of the empty group blank lines; pre-existing, main the same)
+### bnfmt moves an empty import group's comments in three layouts — 🟡 IN PROGRESS (claimed 2026-11-20, temp-4; user: "work on the related open entry") 🟢 LOW (found 2026-11-18, temp-4, review of the empty group blank lines; pre-existing, main the same)
 
 An empty import group (`import ()`) prints nothing, and some of its comments end up elsewhere (checked 2026-11-18 on
 binate `f6578e7c6`): (1) one on the previous import's line becomes that import's trailing comment -- `import "z";
