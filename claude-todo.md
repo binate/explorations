@@ -592,7 +592,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames are still about 2x LLVM's: the regions of struct values are never shared — 🔴 OPEN (step 3 of plan-native-frame-slots.md; steps 4 and 5 done, claude-todo-done.md; found 2026-11-10, work-3)
+### Native frames are still about 2x LLVM's: the regions of struct values are never shared — 🟡 IN PROGRESS (claimed 2026-11-21, work-3; user: "then step 3") (step 3 of plan-native-frame-slots.md; steps 4 and 5 done, claude-todo-done.md; found 2026-11-10, work-3)
 
 After the plan's steps 1, 2, 4 and 5 parsePrimaryExpr's native aarch64 frame is 2,640 bytes at -O0 and
 2,720 at -O2, against 1,344 for LLVM -O2.  Left: step 3 -- the regions of aggregate values (a load's, a call
