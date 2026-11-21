@@ -483,7 +483,9 @@ IR-gen cannot map is an internal error, never `int`.
    replacing redefinition from reporting an older input's shadow): a variable's global, a constant (with the
    warning), a function and a generic function's instances (IR-gen's ShadowReplFunc, and Vm.RenameFunc at commit);
    ShadowReplGenericFunc goes, and an import now shadows a function it takes the name of.  Methods are still
-   forgotten and unbound (6b-5).  6b-3b: the views and IR-gen's naming (RegisteredName, recordedGenericHead by
+   forgotten and unbound (6b-5).  A follow-up (binate `824dfad0f`, 2026-11-20; user: "let's fix it now") renames
+   back exactly what a failed shadowing declaration renamed (a generic's instances stayed renamed, and the next
+   use aborted the REPL).  6b-3b: the views and IR-gen's naming (RegisteredName, recordedGenericHead by
    declaration identity, hidden instance names); it also fixes the todo MAJOR "REPL: a floating-point constant
    computed from another constant ...", whose constants the new warning misdescribes until then.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
