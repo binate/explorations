@@ -119,6 +119,33 @@ Notes for 4c-4e from the 4b review (2026-11-17):
 - sink_extract and the aggregate-load elision treat any scope end as a barrier; only the source's own scope needs to
   be one.
 
+## Step 3 design (2026-11-21)
+
+A data region (instrHasDataRegion) holds an aggregate value's bytes -- a copied load, a call's aggregate result, a
+made slice, a function or interface value, an interface upcast, an aggregate nil, a read-only array or
+managed-slice copy. The instruction that defines the value writes it; it is read through the value's pointer, by
+the value's uses and by the uses of the values that pass the pointer on: isAggregateAlias (an aggregate OP_EXTRACT
+-- an address inside the region -- and an aggregate OP_MANAGED_TO_RAW / OP_CAST / OP_BIT_CAST) and an aggregate
+phi's copies (after iropt.EliminatePhis, OP_COPY moves carrying the phi's id), transitively.  No region is shared
+today.
+
+- **Liveness.**  The register allocator's liveness (computeLivenessImpl) takes a register class; it gains one for
+  aggregate values (an aggregate-typed def that is not an OP_ALLOC), computed over the same positions, intervals
+  built as for GP / FP values.  A region's lifetime is the hull of the intervals of its value and of the value's
+  alias closure.  The writes are at the def (the hull's start); every read is at a use the liveness covers.
+- **Packing.**  Regions with a lifetime share bytes where their lifetimes do not meet: first fit in order of
+  lifetime start (firstFitOffset, interference rows from lifetime overlap), laid down after the shared spill slots.
+  A region whose closure the analysis cannot follow keeps bytes of its own, as do parameters' regions (filled by
+  the prologue) and the cases PlanFrame already gives no region (call results placed in slots or the caller's
+  buffer, last-use argument loads, returned loads of the retbuf local).
+- **To check (review):** a backend path that reads a region at a position outside its closure's intervals (a
+  deferred copy, a fold that moves a read); an instruction that reads one region and writes another at the same
+  position (a call whose by-reference argument copy is the argument's own region, argOwnsRegion, and whose result
+  is a region -- both intervals contain the call's position, so they interfere); phi copies across loop back edges.
+- **Sub-steps:** 3a the aggregate liveness class and region lifetimes (unit-tested, nothing uses them); 3b
+  PlanFrame shares regions by them, frames re-measured, full native conformance (aa64 at -O0 and -O2, x64, arm32
+  bare metal, arm32 Linux subset).
+
 ## Step 5 notes (2026-11-20)
 
 - Part 2 ("pass a field read by value without the alloca round trip") was built and measured, then dropped (user:
