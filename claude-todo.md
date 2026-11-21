@@ -1274,7 +1274,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: a const or var group typed at the prompt accepts a name declared twice — 🔴 OPEN MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b; found 2026-11-20, work-6, review of that change; pre-existing)
+### REPL: a const or var group typed at the prompt accepts a name declared twice — 🟡 IN PROGRESS (claimed 2026-11-20, work-6) MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b; found 2026-11-20, work-6, review of that change; pre-existing)
 
 - Symptom: at the prompt, `const ( A int = 1; A int = 2 )` is accepted (the shadowing warning printed twice), and
   `var ( b int = 1; b int = 2 )` silently, where a file reports "A redeclared in this block".  The values read back
