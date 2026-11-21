@@ -21,7 +21,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
   other consumers of a literal's value that copy it with allocStored for the same mix-up.  Test: a conformance test
   with the literal on either side of == / !=, a struct and an array literal, a case value, and a literal tag.
 
-### LLVM -O2 on aarch64: conformance 1720 (stack arguments past 2 GiB) dies with SIGSEGV — 🔴 OPEN (found 2026-11-18, work-3, validating the plan-native-frame-slots step 4d; pre-existing: binate main `eb2442a91`'s codegen fails the same way)
+### LLVM -O2 on aarch64: conformance 1720 (stack arguments past 2 GiB) dies with SIGSEGV — 🟡 IN PROGRESS (claimed 2026-11-20, work-3; user: "then the LLVM -O2 crash") (found 2026-11-18, work-3, validating the plan-native-frame-slots step 4d; pre-existing: binate main `eb2442a91`'s codegen fails the same way)
 
 `BINATE_FLAGS=-O2 conformance/run.sh builder-comp 1720_stack_args_past_2gib_callers` on this (aarch64) host: exit
 status 139, expected `ok`; it passes at -O0.  The program never makes its calls (`run` is false), so nothing it runs
