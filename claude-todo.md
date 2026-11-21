@@ -2787,6 +2787,12 @@ RIP-relative operand with no symbol (`[rip]`, `mov eax, [rip + 0x40]`, `lea rax,
 [x@PLT]` and `[x@GOT]`, clang's absolute [disp32] with R_X86_64_PLT32 / GOT32; `mov rax, [rip + x@GOT]`, clang's
 R_X86_64_GOTPC32).  The `#` comment above matters past hand-written source: clang's own x86-64 `-S` output writes
 them (`# %bb.0:`, `# @f`).
+Found 2026-11-20 (review of plan-asm-x64-isa.md stage 2, x87, binate `7ac5508c0`), no wrong code: clang's size
+keywords `float ptr` (a dword), `double ptr` (a qword) and `long ptr` (a dword) are rejected (`fld double ptr [rax]`,
+`mov eax, long ptr [rax]`); bnas takes a size keyword without `ptr` (`mov eax, dword [rax]`), where clang requires it
+("Expected 'PTR' or 'ptr' token!") — fix the two together, as the new keywords would otherwise take symbols named
+`float` / `double` / `long`; and `offset st` (an `offset` of a register's name) is rejected where clang reads the
+name as a symbol (R_X86_64_32 against `st`).
 
 ## bnld (self-hosted linker)
 
