@@ -1,3 +1,14 @@
+### Native frames: IR-gen's struct copies (plan-native-frame-slots step 5) — DONE (binate `e5fbfd56d`, `ba75d76b3`, 2026-11-20, work-3; user: "then do steps 4 and 5"; "Drop (B)"; "Split ir.bni first")
+
+A struct temporary with references is destroyed in the slot that already holds it instead of in a fresh copy, and
+ir.Instr.ArgsNotKept marks dtor / copy helper calls so that CallResultSlots still lets a call write its result
+straight into such a slot (and into a named local built from a call) -- binate `ba75d76b3`; the mark needed room in
+ir.bni, so its interface-registry queries moved to pkg/binate/iriface first (`e5fbfd56d`).  parsePrimaryExpr's
+native aarch64 frame went 3,040 -> 2,640 at -O0 and 2,976 -> 2,720 at -O2.  The plan's second part (pass a struct
+read from memory without IR-gen's slot copy) was built, measured larger on native and LLVM x86-64, root-caused
+(the slot copy is the ABI's by-reference argument copy, shared since 4e) and dropped; see the plan's Step 5 notes.
+Conformance 1766.
+
 ### Native frames: allocas whose lifetimes never meet share bytes (plan-native-frame-slots step 4) — DONE (binate `c2737d70c`, `867d46571`, `eb2442a91`, `7b0933b2f`, `f3e5e620b`, 2026-11-17 .. 2026-11-19, work-3; user: "then do steps 4 and 5")
 
 Step 4 of the frame-slots plan, in five landings: scope ids on allocas and an OP_SCOPE_END marker in the IR

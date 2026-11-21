@@ -206,3 +206,12 @@ Notes for 4c-4e from the 4b review (2026-11-17):
   parsePrimaryExpr 3,040 / 3,056 / 1,920; LLVM -O2 aa64 / x64 parsePrimaryExpr 1,472 / 1,064 (from 2,432 / 1,992).
   Native aa64 full conformance 3975/0, LLVM -O2 3974/1 (1720); compile time unchanged.  Not scoped yet:
   gen_selector_ptr's field-address temps, aggregateOperandBase's copies, the hidden `.` slots.  Next: step 5.
+- Step 5 DONE: binate `ba75d76b3` (2026-11-20), after `e5fbfd56d` split ir.bni (the interface-registry queries
+  moved to pkg/binate/iriface) to make room for ir.Instr.ArgsNotKept.  A struct temporary with references is
+  destroyed in the slot that holds it (gen_temp_home.bn: a field / element read's slot, a field-address copy, a
+  by-value argument's copy, a discarded result's slot); ArgsNotKept marks dtor / copy helper calls, and
+  CallResultSlots lets a slot's address (or a cast of it) go to such calls, so a call writes its result straight
+  into a home -- and into a named local built from a call.  Part 2 dropped (Step 5 notes).  Frames, native aa64
+  -O0 / -O2: parseStructType 992 / 880, parseTypePrefix 1,088 / 1,232, parsePrimaryExpr 2,640 / 2,720 (from 3,040 /
+  2,976); x64 -O2 parsePrimaryExpr 2,720, arm32 -O2 1,904; LLVM -O2 aa64 / x64 1,344 / 936.  Native aa64 full
+  3976/0, LLVM -O2 3975/1 (1720).  Steps 4 and 5 done; left: step 3 (regions), not yet requested.

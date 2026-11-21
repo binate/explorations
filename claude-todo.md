@@ -592,14 +592,13 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames are still about 2x LLVM's: the regions of struct values are never shared, and IR-gen copies by-value structs — 🟡 IN PROGRESS on step 5 (claimed 2026-11-17, work-3; user: "then do steps 4 and 5"; found 2026-11-10, work-3; plan-native-frame-slots.md steps 3 and 5)
+### Native frames are still about 2x LLVM's: the regions of struct values are never shared — 🔴 OPEN (step 3 of plan-native-frame-slots.md; steps 4 and 5 done, claude-todo-done.md; found 2026-11-10, work-3)
 
-After the plan's steps 1, 2 and 4 (binate `20b98a7ba`, `788ff5285`; step 4 in claude-todo-done.md)
-parsePrimaryExpr's native aarch64 frame is 3,040 bytes against 1,472 for LLVM -O2 (step 4's lifetime markers
-shrank LLVM's frames too).  Left: the regions of aggregate values are never shared between disjoint lifetimes
-(step 3; 28% of the parser's native frame bytes, measured after step 1), and IR-gen copies a by-value struct
-argument several times (`p.tok.Pos`: a load, an alloca and its copy helper, a reload) and copies a discarded
-aggregate call result into an alloca only to destroy it (step 5, in progress).
+After the plan's steps 1, 2, 4 and 5 parsePrimaryExpr's native aarch64 frame is 2,640 bytes at -O0 and
+2,720 at -O2, against 1,344 for LLVM -O2.  Left: step 3 -- the regions of aggregate values (a load's, a call
+result's) are never shared between disjoint lifetimes (28% of the parser's native frame bytes, measured after step
+1), nor are the backends' per-call copies of a by-reference struct argument.  Step 5's dropped part 2 (Step 5 notes
+in the plan) depends on the latter.
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
