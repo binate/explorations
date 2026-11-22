@@ -1,3 +1,15 @@
+### LLVM codegen's countAggregateLeaves walks every path through a type -- exponential where its parts share a type — DONE (binate `56119bc28`, 2026-11-21, work-1)
+
+countAggregateLeaves (codegen/emit_copy_ssa_load.bn), which isBulkAggregate asks of every aggregate load, store,
+copy and zero-fill, sums its leaves by visiting every path through the type: for `type S1 struct { a S0; b S0 }`,
+..., `S56` (2^62 bytes, a legal size) it recurses about 2^57 times before isBulkAggregate can answer.  Fix: stop
+counting once the count passes bulkLeafThreshold (isBulkAggregate needs only that), as aggregateDeeperThan stops past
+its depth; emitAggregateLoadIntoSSAFrom, which needs the exact count, sees only aggregates under the threshold.
+- Fixed by binate `56119bc28`: isBulkAggregate counts leaves only until the count passes bulkLeafThreshold
+  (aggregateLeavesExceed), and a struct of no size is not walked, within one layout query.  The exact count is
+  asked only by the leaf-by-leaf emitter.  TestAggregateLeavesSharedParts (does not finish without it); cmd/bnc's
+  and the corpus's LLVM IR unchanged.
+
 ### A struct or array compared with a composite literal was never equal: `v == (T{...})` and `case T{...}:` took the false branch — DONE (binate `30d9d50db`, 2026-11-21, work-3; user: "take the struct-literal equality bug on next")
 
 IR-gen's value for a struct / array composite literal is its storage (an alloca), and aggregate equality copied
