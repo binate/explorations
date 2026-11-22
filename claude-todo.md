@@ -567,7 +567,15 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3)
+### Native PlanFrame's region sharing runs a liveness pass of its own — about 2% of native compile time — 🟡 IN PROGRESS (claimed 2026-11-22, work-3; user: "go ahead and do the follow-ups")
+
+regionSpans (native/common/common_region_share.bn, binate `02d1e098a`) computes the liveness of aggregate values
+(REGCLASS_AGG) and builds their intervals for every function with two or more data regions, after the register
+allocator has already run its own GP and FP liveness passes.  Native compile medians came out 2.2% (irgen) and
+2.4% (check) slower than the parent's, against a noise floor of 0.8% (minimums equal).  Profile first; then fold
+the aggregate class into a pass the allocator already makes, or make the pass cheaper.
+
+### Native frames: a call's copies of its by-reference struct arguments are never shared — 🟡 IN PROGRESS (claimed 2026-11-22, work-3, measuring the parser's remaining frame bytes first; user: "go ahead and do the follow-ups, and then maybe consider doing the open thing left in the todo") (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3)
 
 After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64
 1,776 / 1,824, arm32 1,312 / 1,488), against 1,344 for LLVM -O2 on aarch64.  Left: the backends' per-call copies of
