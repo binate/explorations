@@ -493,7 +493,8 @@ IR-gen cannot map is an internal error, never `int`.
    group declaring a name twice was taken member by member for a redefinition (wrong values; a panic with C1);
    fixed ahead of C1 in the same landing (binate `93c8f4048`; user: "yes, fix it now"): such a group is rejected,
    as in a file (CheckDeclInScope's rejectRedeclaredMembers; Checker.CheckGroupNames for the REPL's split var and
-   type groups).  Left: C2 (the universe split) and C3 (the views).
+   type groups).  C2 DONE (binate `eaa04b866`, 2026-11-21; user: "wait 4 minutes, then land; then continue"): the
+   universe scope moves from scope.bn to universe.bn, unchanged.  Left: C3 (the views).
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
