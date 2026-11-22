@@ -2222,7 +2222,7 @@ See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Cross-mode slices of interface values: latent gaps around substituteSliceIfaceArgs — 🔴 OPEN 🟢 LOW (none reachable from the stdlib; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
+### Cross-mode slices of interface values: latent gaps around substituteSliceIfaceArgs — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (none reachable from the stdlib; found 2026-11-16, work-1, review of the argIsSliceOfRawIface fix)
 
 Only a raw slice of raw interface values passed directly as an argument (a `...*any` / `...*I` pack or spread) has its
 elements translated for a native callee.  Not translated: a slice of MANAGED interface values (`*[]@I`;
@@ -2806,7 +2806,7 @@ place (since binate `27bdebd4b`).  The parser records these calls' `(` already
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
-### Preparing a layout during collection is quadratic in the length of the chain it reads — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
+### Preparing a layout during collection is quadratic in the length of the chain it reads — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
 
 A read while the declarations are collected of a chain of n struct declarations, each holding the next (`type X
 struct { a [sizeof(T0)]uint8 }` over T0 .. T(n-1)), prepares every declaration of the chain, and two steps for each
@@ -2821,7 +2821,7 @@ checkBniValueEmbedding runs checkTypeByValueCycle for each declaration (two thir
 chain read by `sizeof`), so bni_by_name_walk_test.bn's struct chain is 3,000 long, short of where the old by-name
 recursion crashed (~10,500).
 
-### Checking is quadratic in a package's number of declarations — 🔴 OPEN 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
+### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
 With each declaration's type walks kept across a batch (the deep-nesting memoization stage, landed 2026-11-06), what
 is still superlinear in a package with many declarations grows with their number, not their nesting: bnc `--emit-llvm`
@@ -2844,7 +2844,7 @@ codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named m
 type compiles in 0.39 s at 2,000 types, 3.8 s at 8,000 and 14.7 s at 16,000 (user), mostly in the front end's lists
 above and ~5% in the pending helper lists.
 
-### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-1, review of the deep-nesting IR-gen stage; pre-existing)
+### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-14, work-1, review of the deep-nesting IR-gen stage; pre-existing)
 
 Registering a package's alias `type Ak = Ak+1` resolves its target from the checker's record (typeFromRecord), and the
 checker's type of an alias is a chain of alias wrappers (MakeAliasType per declaration), so irAliasFromChecker walks
@@ -2855,7 +2855,7 @@ typeFromRecord (table puts and growth, typeHasParts, the walk's vector).  Fix: s
 declaration is registered (its mapping is that registration), or keep alias mappings across mappings where they
 cannot change.
 
-### The checker's generic instantiation caches are lists searched linearly and appended by copying — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-1, deep-nesting check of generic alias chains; pre-existing)
+### The checker's generic instantiation caches are lists searched linearly and appended by copying — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-14, work-1, deep-nesting check of generic alias chains; pre-existing)
 
 Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
 appended with slices.Append (a copy of the list), and lookupCachedInstantiationEntry / lookupAliasInstantiation
@@ -2867,7 +2867,7 @@ check's unit-test binary, 24 s at 400 links (the length TestDeepGenericAliasChai
 vec, and an index by declaration (a table keyed on the declaration's address) holding each declaration's entries;
 the REPL's rollback truncates the lists (check_inst_cache_drop.bn), so it must drop the index's entries too.
 
-### clang crashes compiling the -g debug info of a 20,000-struct ring — 🔴 OPEN 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
+### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
 With -g, bnc emits the debug info of a ring of structs each holding a pointer to the next (binate `7f47f5003` interns
 it from a stack), but clang (Apple clang 21, arm64) crashes compiling it ("Illegal instruction: 4") at 20,000 structs;
@@ -2876,7 +2876,7 @@ LLVM follows the ring through its own type graph, presumably recursively.  The n
 Options: describe a struct reached through a pointer by a declaration (DIFlagFwdDecl with an identifier) so the
 graph has no long path, or accept it as LLVM's limit.
 
-### Checking a chain of named types over named types takes time superlinear in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
+### Checking a chain of named types over named types takes time superlinear in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
 A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding's requireSizedType runs the opaque
 rules for each declaration (opaqueRulesKept -> pointeeEmbedsOpaque -> stepBringPointeeKept), and pointeeBase peels the
@@ -2885,7 +2885,7 @@ in the table's name equality (sampled).  A unit test of 6,000 declarations took 
 took 207 s at 20,000 (done/plan-deep-nesting.md).  Fix: keep pointeeBase's answer per named type across the batch, as the
 pointer rule's answers are kept (opaqueRulesKept), or peel a chain of names once.
 
-### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
+### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 
 The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
 it: isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and isAggregateLeafRetype /
@@ -2903,7 +2903,7 @@ reaches); the cast retype needs its readonly checks made one level at a time, wh
 check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
 decayed side's stripped kind down the chain.
 
-### LLVM codegen's countAggregateLeaves walks every path through a type -- exponential where its parts share a type — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-17, work-1, review of the deep-aggregate bulk change)
+### LLVM codegen's countAggregateLeaves walks every path through a type -- exponential where its parts share a type — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-17, work-1, review of the deep-aggregate bulk change)
 
 countAggregateLeaves (codegen/emit_copy_ssa_load.bn), which isBulkAggregate asks of every aggregate load, store,
 copy and zero-fill, sums its leaves by visiting every path through the type: for `type S1 struct { a S0; b S0 }`,
@@ -2911,7 +2911,7 @@ copy and zero-fill, sums its leaves by visiting every path through the type: for
 counting once the count passes bulkLeafThreshold (isBulkAggregate needs only that), as aggregateDeeperThan stops past
 its depth; emitAggregateLoadIntoSSAFrom, which needs the exact count, sees only aggregates under the threshold.
 
-### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
+### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
 
 None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
 once per path: on a ladder of diamonds (`I_k : A_k, B_k`, with `A_k : I_k+1` and `B_k : I_k+1`) they take time
