@@ -1,3 +1,19 @@
+### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — DONE (binate `7365e3398`, 2026-11-22, work-1)
+
+Registering a package's alias `type Ak = Ak+1` resolves its target from the checker's record (typeFromRecord), and the
+checker's type of an alias is a chain of alias wrappers (MakeAliasType per declaration), so irAliasFromChecker walks
+the rest of the chain for each declaration, putting every alias it passes into gc.AliasesMapped, which is dropped when
+the mapping ends: O(n^2) table insertions for a chain of n.  Sampled at 10,000 links (`type A0 = A1 ... A9999 = int;
+var x A0`, bnc --emit-llvm): 28 s in all, 19 s in the checker, ~9 s in registerModuleTypeDecl, nearly all of it under
+typeFromRecord (table puts and growth, typeHasParts, the walk's vector).  Fix: stop the walk at an alias whose own
+declaration is registered (its mapping is that registration), or keep alias mappings across mappings where they
+cannot change.
+- Fixed by binate `7365e3398`: IR-gen records, for each alias declaration it registers, the checker's type for it
+  with the registration (GenCtx.AliasDecls), and irAliasFromChecker stops at the first alias so recorded whose
+  name still holds that registration (a REPL entry undone, or another declaration of the name, falls back to the
+  walk).  10,000-link chains: `--emit-llvm` 7-9 s from 12.5-13.6 s; the rest is the checker's walks over the
+  chain (opaque rules, fitting checks, alias resolution -- the named-chain and retype entries).  IR unchanged.
+
 ### LLVM codegen's countAggregateLeaves walks every path through a type -- exponential where its parts share a type — DONE (binate `56119bc28`, 2026-11-21, work-1)
 
 countAggregateLeaves (codegen/emit_copy_ssa_load.bn), which isBulkAggregate asks of every aggregate load, store,

@@ -2875,17 +2875,6 @@ codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named m
 type compiles in 0.39 s at 2,000 types, 3.8 s at 8,000 and 14.7 s at 16,000 (user), mostly in the front end's lists
 above and ~5% in the pending helper lists.
 
-### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-14, work-1, review of the deep-nesting IR-gen stage; pre-existing)
-
-Registering a package's alias `type Ak = Ak+1` resolves its target from the checker's record (typeFromRecord), and the
-checker's type of an alias is a chain of alias wrappers (MakeAliasType per declaration), so irAliasFromChecker walks
-the rest of the chain for each declaration, putting every alias it passes into gc.AliasesMapped, which is dropped when
-the mapping ends: O(n^2) table insertions for a chain of n.  Sampled at 10,000 links (`type A0 = A1 ... A9999 = int;
-var x A0`, bnc --emit-llvm): 28 s in all, 19 s in the checker, ~9 s in registerModuleTypeDecl, nearly all of it under
-typeFromRecord (table puts and growth, typeHasParts, the walk's vector).  Fix: stop the walk at an alias whose own
-declaration is registered (its mapping is that registration), or keep alias mappings across mappings where they
-cannot change.
-
 ### The checker's generic instantiation caches are lists searched linearly and appended by copying — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-14, work-1, deep-nesting check of generic alias chains; pre-existing)
 
 Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
