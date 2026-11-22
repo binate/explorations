@@ -1,3 +1,24 @@
+### bnfmt moved a comment before the `)` of parentheses it keeps to after the `)` — DONE (binate `1027f850c`, 2026-11-22, temp-4; user: "yes", landed on "wait 8 minutes, then go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
+
+A block comment right before the `)` of parentheses the source puts around an expression, where bnfmt keeps them,
+printed after the `)`: `z := (a + b /* c */) * d` printed `z := (a + b) /* c */ * d`, and `w := -(a + b /* c */)`
+printed `w := -(a + b) /* c */`.  The tree records no position for such a pair, so no gap of the printer's ended
+at its `)`.
+- Fix (print_inlineclose.bn, print_closegaps.bn; print_expr.bn, print_chain.bn, print_slice.bn, print_switch.bn):
+  the pair is the innermost bracket pair around the span from the expression's start to its Pos (openAround, among
+  ast.File.Brackets), and the `)` bnfmt writes claims the block comments on one line before the source's, keyed by
+  its `(` (parenCloserGap): around a binary operand, a unary's operand, a postfix head (a selector's, an index's, a
+  call's, a slice's, a type assertion's), a type switch's head, a number literal before a `.` and an array literal
+  after a `*`.  Where a head or an operand is first rendered alone to claim the gap after it, the `)` claims them
+  first (claimAfterParens).  Where bnfmt drops the parentheses, the comment goes where it did.
+- Tests: print_inlineclose_test.bn TestCloserCommentsOfKeptParensStayInPlace and
+  TestCloserCommentsOfKeptParensCount; print_closegaps_test.bn TestOpenAround.
+- Validation: of 1,845 such comments in 300 generated files, every one stays in place (main: none), with no file
+  unstable or wider; 26,085 corpus files, the tree's included, format as on main.  Real files take the same time;
+  one statement nesting 16 calls, each with a commented parenthesized argument, takes 4.0 s against main's 1.1 s.
+- Still in claude-todo.md: a composite literal in a condition, whose parentheses a condition's first render does
+  not write.
+
 ### The checker's generic instantiation caches are lists searched linearly and appended by copying — DONE (binate `1378df7f0`, 2026-11-22, work-1)
 
 Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
