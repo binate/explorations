@@ -1271,6 +1271,15 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   needs anything (a qualified name is named by its package path, recordedSymName).  Test: e2e/repl.sh cases of the
   sessions above (the two-package one needs fixture packages).
 
+### REPL: an instance of a non-generic type parks the declaration with an empty pending list — 🔴 OPEN MINOR (wrong diagnostic; found 2026-11-21, work-6, writing an e2e case for plan-irgen-checker-types 6b-3b; pre-existing: a bni from main as of binate `26767b035`)
+
+- Symptom: with a main file declaring `type Box struct { V int }`, `var bx Box[int]` at the prompt prints
+  "variable bx parked (pending: )" and never resolves (a use reports "variable bx is unresolved (pending: )"), where
+  the instantiation of a type that is not generic should be rejected.  Met after `type Box[T any] struct { v T }`
+  was rejected ("cannot redefine type Box").
+- Cause: unknown; a miss recorded with an empty key (captureMissing, check_pending.bn) is the likely path.
+- Fix: reject the declaration with the error a file gets.  Test: an e2e/repl.sh case of the session above.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
