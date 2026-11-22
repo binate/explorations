@@ -1,3 +1,25 @@
+### A struct or array compared with a composite literal was never equal: `v == (T{...})` and `case T{...}:` took the false branch — DONE (binate `30d9d50db`, 2026-11-21, work-3; user: "take the struct-literal equality bug on next")
+
+IR-gen's value for a struct / array composite literal is its storage (an alloca), and aggregate equality copied
+every operand into a scratch slot, storing the literal's address and comparing its bytes; a literal switch tag was
+compared as a scalar pointer (invalid IR on LLVM).  An operand or tag that is a composite literal -- told by the
+AST, as the cast builtin does: a variable's address is an alloca too, and a review found `switch &v` comparing the
+variables' contents in the first version -- is now compared by its storage's bytes in place (isLiteralStorage); a
+literal tag's storage keeps scope 0.  Left as it was (the review's minor note): a literal tag's references are
+released before the cases compare its bytes, as a call result tag's are.  Conformance 1767;
+TestGenAggregateEqLiteralOperand.
+
+### LLVM -O2 on aarch64: conformance 1720 (stack arguments past 2 GiB) died with SIGSEGV — DONE (binate `bf0fb1e9c`, 2026-11-21, work-3; user: "then the LLVM -O2 crash"; "64 KiB")
+
+Confirmed by disassembly: LLVM's inliner (not iropt's) inlined the three 1 GiB-argument callers into `main`, whose
+frame then held their by-reference argument copies and overflowed at entry.  iropt's own inliner had the same hole
+(a small function with a 1 GiB local, called under a condition, crashed `main` at native -O2).  Neither inliner now
+inlines a callee whose frame passes iropt.INLINE_MAX_FRAME (64 KiB): iropt counts a callee's slots, aggregate
+values (a review found native's per-value regions uncounted at first) and by-value aggregate arguments; the LLVM
+backend gives every function `"inline-max-stacksize"="65536"` (LLVM 16+; older ignore it).  The limit is per
+callee: a caller inlining many callees just under it still grows by their sum.  Full LLVM -O2 and native aa64 -O2
+conformance 3978/0.  Conformance 1768; TestInlineSkipsCalleeWithBigFrame / BigResult.
+
 ### REPL: a const or var group typed at the prompt accepts a name declared twice — DONE (binate `93c8f4048`, 2026-11-21, work-6; user: "yes, fix it now", landed on "wait 4 minutes, then go ahead"; MAJOR (silent wrong output; a panic with the registered-name change of plan-irgen-checker-types 6b-3b); found 2026-11-20, work-6, review of that change; pre-existing)
 
 - Symptom: at the prompt, `const ( A int = 1; A int = 2 )` was accepted (the shadowing warning printed twice), and
