@@ -310,5 +310,18 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   as).  General parser gaps the review found are in claude-todo.md (the x86-64 parser coverage entry: float /
   double / long ptr, ptr required, `offset st`).
 
-Next: stage 3, SSE through SSE4.2, AES, CLMUL, SHA, MMX and Key Locker's XMM forms (extend asm/x64/sse and the
-parser, which reads no XMM operand yet).
+- Stage 3a (SSE / SSE2 floating point) — landed binate `e5d6acde4` (2026-11-21; user: "wait 4 minutes, then go
+  ahead"): asm/x64/sse's instruction table (sse_table.bn: lines "<mnemonic> <prefix> <map> <opcode> <operand
+  classes>" in a string, in parts by family; sse_emit.bn's Has / Emit match a mnemonic's lines against x64
+  operands and encode the first that fits, allocating nothing) with SSE / SSE2's floating point, 102 forms, and
+  the cmp<pred>ps .. sd names with clang's second spellings (eq_oq .. ord_q); the parser reads xmm0..xmm15
+  (parse/x64_sse.bn), and movsd / cmpsd are SSE's with an XMM register on the line, else the string instructions.
+  Kept differences: an XMM register in a memory operand is an error, as GNU as (clang encodes the general register
+  of its number: [rbx + xmm9*4] as [rbx + r9*4]); lock / rep / xacquire / xrelease before an SSE instruction are
+  errors, as GNU as (clang reads rep addps as addss).  Found by its review and fixed before landing: rep before
+  SSE movsd / cmpsd was taken; clang's eq_oq .. ord_q spellings were missing; an error named a predicate name's
+  base (cmpsd for cmpltsd).  The MMX-operand conversions (cvtpi2ps, cvtps2pi, cvttps2pi, cvtpi2pd, cvtpd2pi,
+  cvttpd2pi) go with 3b, which adds the MMX registers.
+
+Next: stage 3b, SSE2's packed integer and MMX (the registers mm0..mm7, and the MMX-operand conversions); then 3c
+(SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow!).
