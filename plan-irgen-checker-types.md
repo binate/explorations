@@ -494,7 +494,15 @@ IR-gen cannot map is an internal error, never `int`.
    fixed ahead of C1 in the same landing (binate `93c8f4048`; user: "yes, fix it now"): such a group is rejected,
    as in a file (CheckDeclInScope's rejectRedeclaredMembers; Checker.CheckGroupNames for the REPL's split var and
    type groups).  C2 DONE (binate `eaa04b866`, 2026-11-21; user: "wait 4 minutes, then land; then continue"): the
-   universe scope moves from scope.bn to universe.bn, unchanged.  Left: C3 (the views).
+   universe scope moves from scope.bn to universe.bn, unchanged.  C3 DONE (binate `25608c022`, 2026-11-21; user:
+   "wait 8 minutes, then go ahead"): views of the session scope as of a generic's generation (replView,
+   lookupAtGen) for the homes of generic functions and of generic types' methods and for generic type, alias and
+   interface declaration scopes; IR-gen finds a called generic by its declaration (stashedGenericFunc, following
+   GenCtx.ReplacedGenericFuncs to the declaration that replaced one with the same signature), keeps a shadowed
+   generic stashed and names its later instances by its hidden name.  binate `38b4fcd11`'s e2e case now prints 1001
+   (group-instance-body-keeps-declared-names).  Left by C3's review: a prompt declaration still parks on a parked
+   redefinition its generic's view never sees (the use recording, which 6b-6 deletes); and the todo MAJOR "REPL:
+   an import that rebinds a package name changes what an earlier generic calls" (import names are not versioned).
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
