@@ -175,6 +175,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   integer and MMX; 3c SSE3, SSSE3, SSE4.1, SSE4.2; 3d AES, CLMUL, SHA, GFNI's SSE forms, Key Locker's XMM forms,
   SSE4a and 3DNow! with emms / femms.  (GFNI, SSE4a and 3DNow! were found by the mnemonic sweep: 310 names clang
   takes with XMM or MMX operands.)
+- Prefixes before SSE / MMX and rex64 (user, 2026-11-22): `data16` before an instruction of the SSE table (XMM or
+  MMX operands) is an error, as GNU as ("data size prefix invalid"; clang emits the 66, which makes addps addpd
+  and an MMX instruction its XMM one) — in 3b ("Reject, as GNU as (Recommended)").  `rex64` follows GNU as: its
+  REX.W goes after the legacy and mandatory prefixes, merged into the instruction's own REX (`rex64 mov r9d, eax`
+  49 89 c1, `rex64 movd xmm0, eax` 66 48 0f 6e c0), an error where the instruction has REX.W already ("same type
+  of prefix used twice"); clang emits 48 where it is written, ignored before another REX or a mandatory prefix — a
+  commit of its own after 3b ("As GNU as, own commit (Recommended)").  `emms` moves from 3d into 3b, with the MMX
+  set ("Into 3b (Recommended)"); femms stays with 3DNow! in 3d.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
