@@ -1,3 +1,19 @@
+### The checker's generic instantiation caches are lists searched linearly and appended by copying — DONE (binate `1378df7f0`, 2026-11-22, work-1)
+
+Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
+appended with slices.Append (a copy of the list), and lookupCachedInstantiationEntry / lookupAliasInstantiation
+compare the declaration and type arguments of every entry.  A program making N instantiations takes O(N^2) for each.
+A chain of n generic aliases (`type G0[T any] = G1[T]`, ...) makes up to 128 alias instantiations per declaration
+(each declaration's own check resolves the chain below it with its own T, to MAX_BUILD_NESTING): sampled at 1,000
+links, the time was slices.Append of the list, the destructor of the copies it drops, and the lookups -- 239 s in
+check's unit-test binary, 24 s at 400 links (the length TestDeepGenericAliasChainReported is kept to).  Fix: a
+vec, and an index by declaration (a table keyed on the declaration's address) holding each declaration's entries;
+the REPL's rollback truncates the lists (check_inst_cache_drop.bn), so it must drop the index's entries too.
+- Fixed by binate `1378df7f0`: each list is built through a vec (the list its live view) with an index by
+  declaration (check_inst_cache_index.bn); the lookups and TypeInstanceClones read only the declaration's entries,
+  and a list replaced from outside (the REPL rollback's truncation) is indexed again at the next use.  A 1,000-link
+  generic alias chain: 5.6-7.2 s from 177-244 s.  TestDeepGenericAliasChainReported is still kept at 400 links.
+
 ### Native frames step 3: the data regions of aggregate values share stack bytes by lifetime — DONE (binate `02d1e098a`, 2026-11-22, work-3; user: "then step 3")
 
 PlanFrame lays the data regions of aggregate values (call results, copied loads, made slices, interface and

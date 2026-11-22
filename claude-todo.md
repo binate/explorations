@@ -2901,18 +2901,6 @@ codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named m
 type compiles in 0.39 s at 2,000 types, 3.8 s at 8,000 and 14.7 s at 16,000 (user), mostly in the front end's lists
 above and ~5% in the pending helper lists.
 
-### The checker's generic instantiation caches are lists searched linearly and appended by copying — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-14, work-1, deep-nesting check of generic alias chains; pre-existing)
-
-Generics.Instantiations and Generics.AliasInstantiations are `@[]@GenericInstantiation` lists: each new entry is
-appended with slices.Append (a copy of the list), and lookupCachedInstantiationEntry / lookupAliasInstantiation
-compare the declaration and type arguments of every entry.  A program making N instantiations takes O(N^2) for each.
-A chain of n generic aliases (`type G0[T any] = G1[T]`, ...) makes up to 128 alias instantiations per declaration
-(each declaration's own check resolves the chain below it with its own T, to MAX_BUILD_NESTING): sampled at 1,000
-links, the time was slices.Append of the list, the destructor of the copies it drops, and the lookups -- 239 s in
-check's unit-test binary, 24 s at 400 links (the length TestDeepGenericAliasChainReported is kept to).  Fix: a
-vec, and an index by declaration (a table keyed on the declaration's address) holding each declaration's entries;
-the REPL's rollback truncates the lists (check_inst_cache_drop.bn), so it must drop the index's entries too.
-
 ### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
 With -g, bnc emits the debug info of a ring of structs each holding a pointer to the next (binate `7f47f5003` interns
