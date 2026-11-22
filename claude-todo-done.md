@@ -1,3 +1,13 @@
+### Native frames step 3: the data regions of aggregate values share stack bytes by lifetime — DONE (binate `02d1e098a`, 2026-11-22, work-3; user: "then step 3")
+
+PlanFrame lays the data regions of aggregate values (call results, copied loads, made slices, interface and
+function values) out by lifetime: a liveness class for aggregate values gives each an interval, a region is in use
+over the hull of its value's and its aliases' intervals, and regions whose spans do not meet share bytes.  A region
+keeps its own bytes when an instruction might keep a pointer into it.  parsePrimaryExpr's native aarch64 frame
+2,640 -> 1,776 at -O0, 2,720 -> 1,824 at -O2; native compiles about 2% slower.  Details in
+plan-native-frame-slots.md (Progress).  The rest of the entry (a call's copies of its by-reference struct
+arguments) stays in claude-todo.md.
+
 ### IR-gen maps each alias of a chain through the rest of the chain -- quadratic in its length — DONE (binate `7365e3398`, 2026-11-22, work-1)
 
 Registering a package's alias `type Ak = Ak+1` resolves its target from the checker's record (typeFromRecord), and the

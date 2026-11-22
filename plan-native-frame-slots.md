@@ -242,3 +242,16 @@ today.
   -O0 / -O2: parseStructType 992 / 880, parseTypePrefix 1,088 / 1,232, parsePrimaryExpr 2,640 / 2,720 (from 3,040 /
   2,976); x64 -O2 parsePrimaryExpr 2,720, arm32 -O2 1,904; LLVM -O2 aa64 / x64 1,344 / 936.  Native aa64 full
   3976/0, LLVM -O2 3975/1 (1720).  Steps 4 and 5 done; left: step 3 (regions), not yet requested.
+- Step 3 DONE: binate `02d1e098a` (2026-11-22).  PlanFrame shares the data regions of aggregate values by lifetime
+  (common_region_share.bn): a liveness class for aggregate values (REGCLASS_AGG) gives each an interval, and a
+  region is in use over the hull of its value's and its aliases' intervals (aggregate extracts, casts,
+  managed-to-raw); regions go in span-start order, each at the lowest offset clear of those still in use (a sweep,
+  no interference matrix).  A region keeps its own bytes when an instruction might keep a pointer into it
+  (readsInPlace fails closed: a field pointer of the value, a cast to a pointer, a value built around it).  No phi
+  copies to follow: EliminatePhis rejects aggregate phis.  Frames, native aa64 / x64 / arm32 -O0: parseType 512 /
+  560 / 368, parseTypeInner 592 / 592 / 400, parseStructType 752 / 800 / 528, parseStructField 704 / 704 / 528,
+  parseTypePrefix 896 / 944 / 704, parsePrimaryExpr 1,776 / 1,776 / 1,312; -O2 parsePrimaryExpr 1,824 / 1,824 /
+  1,488.  Full conformance native aa64 -O0 / -O2, x64, arm32 bare metal 3979 / 3979 / 3979 / 3934, 0 failed; arm32
+  Linux subset 638/0.  Native compile medians about 2% slower (irgen +2.2%, check +2.4%, noise floor 0.8%; minimums
+  equal), from the extra liveness pass.  All five steps done; left: a call's copies of its by-reference struct
+  arguments (claude-todo.md).

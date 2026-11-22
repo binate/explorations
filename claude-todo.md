@@ -567,13 +567,12 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native frames are still about 2x LLVM's: the regions of struct values are never shared — 🟡 IN PROGRESS (claimed 2026-11-21, work-3; user: "then step 3") (step 3 of plan-native-frame-slots.md; steps 4 and 5 done, claude-todo-done.md; found 2026-11-10, work-3)
+### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3)
 
-After the plan's steps 1, 2, 4 and 5 parsePrimaryExpr's native aarch64 frame is 2,640 bytes at -O0 and
-2,720 at -O2, against 1,344 for LLVM -O2.  Left: step 3 -- the regions of aggregate values (a load's, a call
-result's) are never shared between disjoint lifetimes (28% of the parser's native frame bytes, measured after step
-1), nor are the backends' per-call copies of a by-reference struct argument.  Step 5's dropped part 2 (Step 5 notes
-in the plan) depends on the latter.
+After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64
+1,776 / 1,824, arm32 1,312 / 1,488), against 1,344 for LLVM -O2 on aarch64.  Left: the backends' per-call copies of
+a by-reference struct argument (the argument-copy area) are never shared between calls; step 5's dropped part 2
+(Step 5 notes in the plan) depends on that.  Measure where the parser's remaining frame bytes are before starting.
 
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
