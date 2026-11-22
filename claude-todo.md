@@ -1249,6 +1249,28 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
+### REPL: an import that rebinds a package name changes what an earlier generic calls — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-21, work-6, review of plan-irgen-checker-types 6b-3b's views; pre-existing: a bni from main as of binate `26767b035` and one with the views, not yet landed, alike)
+
+- Symptom: with packages pkg/pa and pkg/pb each declaring `func F() int` (returning 1 and 2), at the prompt
+  `import s "pkg/pa"`, `func g[T any](v T) int { return s.F() }`, `func k() int { return s.F() }` and
+  `testing.Println(g[int](1), k())` print `1 1`; then `import s "pkg/pb"` and
+  `testing.Println(g[bool](true), g[int](1), k(), s.F())` print `2 1 1 2`: the instance checked after the import
+  calls pb.F, the earlier instance and the non-generic k call pa.F.  Likewise `var strings int = 3` after
+  `import "pkg/std/strings"` takes the name with no warning, and a later instance of a generic declared before it
+  that calls strings.NewBuilder fails ("undefined: strings"); `import s "pkg/stdx/slices"` over
+  `import s "pkg/std/strings"` makes one fail with "undefined: Builder".
+- Cause: the session scope versions only variables, constants and functions (isVersionedKind,
+  check_repl_versions.bn), so a package binding (SYM_PKG) is overwritten in place, and an instance checked later
+  resolves the name to the new binding -- through the session scope today, and through 6b-3b's view of it as of the
+  generic's declaration once that lands, which finds the current binding of a name no version records.  Decision 7
+  (a generic's names mean what they meant where it was declared) covers import names too.  The prompt also prints
+  no shadowing warning when a declaration or an import takes an import's name (the reverse, an import taking a
+  variable's name, warns).
+- Fix (proposed): version a package binding as a variable's is -- keep the superseded SYM_PKG in the history, so
+  a view finds it -- and warn when a declaration or an import takes an import's name.  Unverified: whether IR-gen
+  needs anything (a qualified name is named by its package path, recordedSymName).  Test: e2e/repl.sh cases of the
+  sessions above (the two-package one needs fixture packages).
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
