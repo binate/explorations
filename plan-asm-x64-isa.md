@@ -331,5 +331,18 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   base (cmpsd for cmpltsd).  The MMX-operand conversions (cvtpi2ps, cvtps2pi, cvttps2pi, cvtpi2pd, cvtpd2pi,
   cvttpd2pi) go with 3b, which adds the MMX registers.
 
-Next: stage 3b, SSE2's packed integer and MMX (the registers mm0..mm7, and the MMX-operand conversions); then 3c
-(SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow!).
+- Stage 3b (SSE2 packed integer and MMX) — landed binate `065bb57a8` (2026-11-22; user: "wait 4 minutes, then go
+  ahead"): the table's second part (sse_table_int.bn, 173 forms): SSE2's packed-integer instructions with XMM and
+  MMX operands, the shifts by an immediate (an opcode extension in ModR/M's reg field, written 71/6), pshufd / hw
+  / lw / pshufw, pextrw (and its SSE4.1 store), pinsrw, pmovmskb, movd / movq / movdqa / movdqu with stores and
+  `.s` forms, movntdq / movntq, maskmovdqu / maskmovq, movq2dq / movdq2q, the MMX conversions; emms (0F 77, moved
+  from 3d); the operand classes in sse_class.bn with MMX ones (P, N, Q) and general-register ones (D, Y, J);
+  mm0..mm7 (80..87) in the parser, no base or index.  data16 before an instruction of the table is an error (the
+  decision above).  Found by its review and fixed before landing: emms missing; data16 taken; the table-shape
+  test's gaps (r/m once, the immediate last, its checks never seen to fire).  Clang agrees on a 52,190-line sweep
+  of the 85 names and 17 operand kinds, every [rip + x] / symbol form (ELF, Mach-O), and an MMX-register sweep of
+  every LLVM mnemonic (but the SSSE3 MMX forms and 3DNow!, 3c / 3d).
+
+Next: rex64 as GNU as (its REX.W after the legacy and mandatory prefixes, merged into the instruction's REX; the
+decision above), a commit of its own; then 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key
+Locker's XMM forms, SSE4a, 3DNow! with femms).
