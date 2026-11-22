@@ -503,6 +503,11 @@ IR-gen cannot map is an internal error, never `int`.
    (group-instance-body-keeps-declared-names).  Left by C3's review: a prompt declaration still parks on a parked
    redefinition its generic's view never sees (the use recording, which 6b-6 deletes); and the todo MAJOR "REPL:
    an import that rebinds a package name changes what an earlier generic calls" (import names are not versioned).
+   6b-4 DONE (binate `9afef5b56`, 2026-11-22; user: "wait 8 minutes, then go ahead"): the checker records the
+   method a selector selects (Checker.ExprMethod: method calls, method values, `T.M` and `Box[int].M`
+   expressions, an instance body's calls through a constraint), and IR-gen's method calls and method values take
+   the method from it (selectorMethod; a missing record is an internal error); the callee is still named by its
+   name.  Emitted IR byte-identical (cmd/bnc and the 318 conformance programs that declare a method).
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
