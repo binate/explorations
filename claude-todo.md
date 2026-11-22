@@ -1278,6 +1278,25 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   needs anything (a qualified name is named by its package path, recordedSymName).  Test: e2e/repl.sh cases of the
   sessions above (the two-package one needs fixture packages).
 
+### REPL: a constraint call on a type whose method a later input superseded calls the new method, not the one its impl provides — 🔴 OPEN MAJOR (valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-5a; pre-existing: a bni from main as of binate `9afef5b56` and one with 6b-5a, not yet landed, alike)
+
+- Symptom: at the prompt `interface I { M() int }`, `type T struct { v int }`, `func (t T) M() int { return t.v }`,
+  `impl T : I`, `func h[X I](x X) int { return x.M() }`, `var t T`, `t.v = 7`, then
+  `func (t T) M(k int) int { return k }` (warning: T.M shadowed) and `testing.Println(h[T](t))`: "wrong number of
+  arguments (in h[T], ...)".  `var i *I = &t` then `testing.Println(i.M())` prints 7 -- T's impl of I still
+  provides the old M, its vtable built when the impl was declared -- and an instance h[T] emitted before the
+  redefinition prints 7 too.  A constraint generic declared after the redefinition (`func h2[X I](x X) int { return
+  x.M() }`, `h2[T](t)`) fails the same way.
+- Cause: a call through a type parameter's constraint, checked in an instance (sel.ViaConstraint, tryMethodCall in
+  check_method.bn), looks the type argument's method up by name (named.LookupMethod), finding the method declared
+  last, while the impl that satisfies the constraint binds the method as of its declaration.  Decided (user
+  2026-11-18, plan-irgen-checker-types 6b, "Live"): such a call "calls whatever method the type argument's impl
+  provides" when the instance is made, not the version live where the generic was declared.
+- Fix (proposed): a constraint call selects the version of the method that the type argument's impl of the
+  constraint bound -- the version live at the impl's generation (the impl records its generation; with 6b-5a's
+  method versions a superseded method stays a member of its type under its hidden name, which IR-gen names the callee
+  by).  Test: an e2e/repl.sh case of the session above, with h2.
+
 ### REPL: an instance of a non-generic type parks the declaration with an empty pending list — 🔴 OPEN MINOR (wrong diagnostic; found 2026-11-21, work-6, writing an e2e case for plan-irgen-checker-types 6b-3b; pre-existing: a bni from main as of binate `26767b035`)
 
 - Symptom: with a main file declaring `type Box struct { V int }`, `var bx Box[int]` at the prompt prints
