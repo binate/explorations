@@ -508,6 +508,27 @@ IR-gen cannot map is an internal error, never `int`.
    expressions, an instance body's calls through a constraint), and IR-gen's method calls and method values take
    the method from it (selectorMethod; a missing record is an internal error); the callee is still named by its
    name.  Emitted IR byte-identical (cmd/bnc and the 318 conformance programs that declare a method).
+   6b-5 design (2026-11-22, work-6), in two commits.  Probed with a bni of main `9afef5b56`: a generic function's
+   `t.M()`, method value `t.M` or method expression `T.N(*t)` on a non-generic T fails in an instance checked after M
+   is redefined with another signature ("wrong number of arguments (in call[bool] ...)"), and s1 fails the same way
+   for the generic type's own sibling; s2 passes since C3 (Cell[int].get keeps the old g).  Checker: a method
+   carries the generation declaring it (types.Method.Gen; a same-signature redefinition takes the old one's, as a
+   function does).  One of another signature from another generation supersedes it: the superseded Method is renamed
+   in place to its hidden name (`__repl_shadowed_<gen>_<name>`) and stays a member of the type, and the session
+   keeps a method version (its owner -- the named type, or a generic type's declaration --, name, Gen, Until, hidden
+   name).  lookupVisibleMethod, in a view (a scope chain rooted at a replView), selects the member live at the
+   view's generation: the hidden one of the version with Gen <= gen < Until.  A call through a constraint stays live
+   (it looks up by name).  A record (ExprMethod) is the member selected, so one taken before the supersession names
+   the hidden member too.  Rollback renames back and drops the version.  IR-gen names a method call's callee, a
+   method value's wrapper and a method expression from the recorded method's Name (the selector's spelling without
+   a record): nothing changes for bnc.  The REPL renames the superseded method's function, value-receiver thunk and
+   method-value wrappers to the hidden spellings, in IR-gen when the redefinition is generated and in the VM
+   (Vm.RenameFunc) when it is kept, instead of shadow-lowering and unbinding them.  6b-5a: methods of non-generic
+   types (e2e: the probe above).  6b-5b: methods of generic types -- the superseded GenericMethodEntry stays
+   recorded under its hidden name, so every instance takes it as a member (copied, checked and emitted: "Carry for
+   every instance"); an existing instance's copy is renamed in place instead of dropped; IR-gen keeps the superseded
+   declaration stashed and emits its instances under the hidden name, renaming the instances and wrappers already
+   emitted; ShadowReplGenericMethod, EmitShadowedMethod and Vm.UnbindFunc go; e2e s1, s2.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
