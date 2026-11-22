@@ -1278,7 +1278,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   needs anything (a qualified name is named by its package path, recordedSymName).  Test: e2e/repl.sh cases of the
   sessions above (the two-package one needs fixture packages).
 
-### REPL: a constraint call on a type whose method a later input superseded calls the new method, not the one its impl provides — 🔴 OPEN MAJOR (valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-5a; pre-existing: a bni from main as of binate `9afef5b56` and one with 6b-5a, not yet landed, alike)
+### REPL: a constraint call on a type whose method a later input superseded calls the new method, not the one its impl provides — 🟡 IN PROGRESS (claimed 2026-11-22, work-6; MAJOR; valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-5a; pre-existing: a bni from main as of binate `9afef5b56` and one with 6b-5a, not yet landed, alike)
 
 - Symptom: at the prompt `interface I { M() int }`, `type T struct { v int }`, `func (t T) M() int { return t.v }`,
   `impl T : I`, `func h[X I](x X) int { return x.M() }`, `var t T`, `t.v = 7`, then
