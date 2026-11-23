@@ -624,7 +624,15 @@ liveness, so it computes the same LivenessInfo again: about 0.9% of a native com
 of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
 pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
-### Native frames: a call's copies of its by-reference struct arguments are never shared — 🟡 IN PROGRESS (claimed 2026-11-22, work-3, measuring the parser's remaining frame bytes first; user: "go ahead and do the follow-ups, and then maybe consider doing the open thing left in the todo") (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3)
+### Native frames: aggregate values' pointer slots are never shared — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "Share aggregate pointer slots (Recommended)") (found 2026-11-22, work-3, measuring the frame bytes after plan-native-frame-slots.md step 3)
+
+Aggregate values' pointer slots (an 8-byte spill slot holding the address of the value's bytes) are never shared:
+21% of the parser's native aarch64 frame bytes at -O2 and 22% of irgen's (plan-native-frame-slots.md, Progress,
+2026-11-22).  Since step 3 (binate `02d1e098a`) aggregate values have live intervals (REGCLASS_AGG); give their
+pointer slots step 2's spill-slot sharing (planSharedSpills) by each value's own interval: the slot is written at
+the definition and read at uses.  Multi-return tuple slots stay as they are.
+
+### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3; measured 2026-11-22 at 5-8% of the native frame bytes, see the plan's Progress)
 
 After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64
 1,776 / 1,824, arm32 1,312 / 1,488), against 1,344 for LLVM -O2 on aarch64.  Left: the backends' per-call copies of
