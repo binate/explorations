@@ -2895,11 +2895,10 @@ graph has no long path, or accept it as LLVM's limit.
 
 ### Checking a chain of named types over named types takes time superlinear in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
-The pointer rule, the fitting check and the prefill now take a chain a link at a time (binate `3464db8b4`,
-claude-todo-done.md): 20,000 links `type N0 N1`, ..., `type Nn int8` take 24 s (from 224 s), a 10,000-link alias
-chain ~9 s (from 13-14 s).  Still walking the rest of the chain for each declaration (sampled with that commit):
-- checkDeclsEmbedding's `isOpaqueValueType(c, dt)` (check_value_embedding.bn): isOpaqueType's peelFieldAccessBase
-  and isCrossPkgOpaqueExport's walk (opaqueExportHiddenHere at each named type -- view-dependent) -- ~50% of the 24 s;
+The pointer rule, the fitting check, the prefill (binate `3464db8b4`) and checkDeclsEmbedding's opaque-value check
+(binate `2fda0225b`) now take a chain a link at a time (claude-todo-done.md): 20,000 links `type N0 N1`, ..., `type Nn
+int8` take ~5.3 s (from 224 s), a 10,000-link alias chain ~4.2 s (from 13-14 s).  Still walking the rest of the chain
+for each declaration:
 - on an alias chain, the checker's resolvePendingAliasNamed while collecting (~18% of an alias chain's time) and
   IR-gen's requireConcreteRecord -> isAbstractType for each alias registration (~20%);
 - the scans quadratic in a package's declaration count ("Checking is quadratic in a package's number of

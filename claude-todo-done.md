@@ -1,3 +1,10 @@
+### Checking a chain of named types over named types: checkDeclsEmbedding's opaque-value check -- DONE (binate `2fda0225b`, 2026-11-22, work-1; the rest of the entry stays open)
+
+isOpaqueValueTypeKept keeps, while a batch's declarations are checked in the package's own view and no type
+changes (opaqueValueHere, in the batch's pointeeMemo), isOpaqueValueType's answer for each named type and alias
+it passes.  20,000 named links 5.2-5.4 s from 8.7-11.6 s; a 10,000-link alias chain 4.1-4.3 s from 4.7-7.1 s
+(quiet machine); the corpus's IR and diagnostics unchanged.  TestOpaqueValueTypeKept.
+
 ### REPL: an import that rebinds a package name changed what an earlier generic calls — DONE (binate `c2401ceb2`, 2026-11-22, work-6; user: "work on that after 2. (and landing)", landed on "yes")
 
 With `import s "pkg/pa"`, a generic using `s.F()` / `s.T`, then `import s "pkg/pb"` (or `var strings int` after
