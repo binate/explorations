@@ -1,3 +1,23 @@
+### asm x64: a prefix written before an x87 waiting form went before its FWAIT — `fs fstcw` stored through DS, `data16 fstenv` wrote the 28-byte environment — DONE (binate `26a2fec4a`, 2026-11-23, work-2; user: "Fix both next (Recommended)", landed on "actually, go ahead and land now") (MAJOR: silent wrong code; found 2026-11-22, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
+
+A segment name or `data16` written as an instruction before a waiting x87 form (fstcw, fstsw, fstenv, fsave,
+fclex, finit) is emitted where it is written, before the form's FWAIT (9B), as clang emits it: `fs fstcw word ptr
+[rax]` is 64 9b d9 38 and `data16 fstenv [rax]` 66 9b d9 30.  The prefix then belongs to the FWAIT, so fnstcw
+stores through DS and fnstenv writes the 28-byte environment where the 14-byte one was asked for.  GNU as puts it
+after the 9B (9b 64 d9 38, 9b 66 d9 30), as bnas already does for a segment written in the operand (`fstcw word
+ptr fs:[rax]` 9b 64 d9 38) and for `{rex}` and `rex64`.  Fix: when a prefix written as an instruction has a
+waiting x87 form after it on its line, emit the form's FWAIT before the prefix and not again with the form
+(parse/x64_prefix.bn looking past the prefixes to the instruction's name, as x64PrefixesOnly does;
+x64X87Instruction and the zero-operand forms skipping their FWAIT).  Tests: the two lines above, `fs data16 fstenv
+[rax]`, `gs finit`, against GNU as.
+
+Fixed: x64PrefixInstruction looks past the statement's prefixes and pseudo-prefixes (x64WaitingAhead) and emits a
+waiting form's FWAIT before the first prefix (Parser.X64Waited); the form then emits none (fclex and finit their
+no-wait forms, x64NoWait), so `fs fstcw word ptr [rax]` is 9b 64 d9 38 and `data16 fstenv [rax]` 9b 66 d9 30, as
+GNU as.  After the 9B the prefixes stay in the order written (GNU as puts a segment's before 66), a kept
+difference with es / ss and two segment overrides, which bnas takes before any instruction.  Tests:
+TestX64X87WaitPrefixInstructions (asm/parse).
+
 ### Preparing a layout during collection is quadratic in the length of the chain it reads — DONE (binate `531dc99f0`, 2026-11-23, work-1)
 
 A read while the declarations are collected of a chain of n struct declarations, each holding the next (`type X
