@@ -2899,8 +2899,9 @@ The pointer rule, the fitting check, the prefill (binate `3464db8b4`) and checkD
 (binate `2fda0225b`) now take a chain a link at a time (claude-todo-done.md): 20,000 links `type N0 N1`, ..., `type Nn
 int8` take ~5.3 s (from 224 s), a 10,000-link alias chain ~4.2 s (from 13-14 s).  Still walking the rest of the chain
 for each declaration:
-- on an alias chain, the checker's resolvePendingAliasNamed while collecting (~18% of an alias chain's time) and
-  IR-gen's requireConcreteRecord -> isAbstractType for each alias registration (~20%);
+- on an alias chain (still quadratic: 1.1 s at 5,000 links, 24.6 s at 20,000), the checker's walks of each
+  declaration: the opaque rules' stepAlias (requireSizedType), requireFittingParts / partTooLarge, and
+  resolvePendingAliasNamed while collecting (IR-gen's isAbstractType, binate `4273124c8`, is done);
 - the scans quadratic in a package's declaration count ("Checking is quadratic in a package's number of
   declarations": checkDuplicateDecls, preRegisterTypeNames / Scope.Define, checkImportDeclCollisions, the loader).
 

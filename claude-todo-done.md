@@ -1,3 +1,9 @@
+### Checking a chain of named types over named types: IR-gen's concrete-record assertion -- DONE (binate `4273124c8`, 2026-11-22, work-1; the rest of the entry stays open)
+
+requireConcreteRecord's isAbstractType followed an alias chain to its end on each alias registration;
+isAbstractTypeKept keeps the records found concrete, with the one-part chain followed (GenCtx.ConcreteRecords).
+A 10,000-link alias chain 3.65-3.74 s from 3.93-4.04 s (interleaved); IR unchanged.  TestConcreteRecordsKept.
+
 ### bnfmt moved a comment before the `)` of a composite literal's parentheses in a condition to after the `)` — DONE (binate `7e855c2c1`, 2026-11-22, temp-4; user: "Cache the condition state (Recommended)", landed on "wait 8 minutes, then go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
 
 In a control clause's condition bnfmt keeps the parentheses around a composite literal of a type name, but a block
