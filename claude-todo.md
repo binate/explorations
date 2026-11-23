@@ -1299,21 +1299,6 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: an interface call on a generic named non-struct type's value-receiver method, boxed at the prompt, passes the pointer — 🟡 IN PROGRESS (claimed 2026-11-23, work-6; user: "yes, fix that next"; MAJOR; silent wrong output; found 2026-11-23, work-6, review of the parameterized-impl fix; pre-existing: a bni from main as of binate `e23810d7f`)
-
-- Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Num[T any] int`, `func (n Num[T]) Size()
-  int { return 1 + cast(int, n) }` and `impl Num[T] : Sizer`, at the prompt `var q Num[bool] = 5`, `var s *Sizer =
-  &q`, `testing.Println(s.Size())` prints a pointer plus one (31789804945), not 6.  Boxing the main file's `var a
-  Num[int]` at the prompt is wrong the same way; the same program run by bni outside the REPL, or boxing inside the
-  main module, prints the right value.
-- Cause (likely): an interface call passes a pointer to the receiver, and a value-receiver method's vtable slot needs
-  the iv-dispatch thunk that loads the value; the REPL emits no such thunk for the methods of a generic type's
-  instances emitted at the prompt (generateIvDispatchThunks runs at module generation, GenReplRecvThunk covers only a
-  method declared at the prompt), so the slot names the method itself.  A struct value receiver hides it (the VM's
-  struct copy reads through the pointer); a named scalar does not.
-- Fix (proposed): emit the iv-dispatch thunk for a value-receiver method of an instance the REPL emits, as module
-  generation does.  Test: an e2e/repl.sh case of the session above.
-
 ### REPL: an import silently replaces a session type of the same name — 🔴 OPEN MINOR (valid code rejected later, no diagnostic at the import; found 2026-11-22, work-6, review of the import-name versioning; pre-existing: a bni from main as of binate `d360164ab`)
 
 - Symptom: at the prompt `type qb struct { v int }`, `func g[X any](x X) int { var q qb; q.v = 3; return q.v }`,

@@ -1,3 +1,29 @@
+### REPL: an interface call on a generic named non-struct type's value-receiver method, boxed at the prompt, passes the pointer — DONE (binate `d084c6438`, 2026-11-23, work-6; user: "yes, fix that next", landed on "wait 11 minutes, then land"; MAJOR; silent wrong output; found 2026-11-23, work-6, review of the parameterized-impl fix; pre-existing: a bni from main as of binate `e23810d7f`)
+
+- Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Num[T any] int`, `func (n Num[T]) Size()
+  int { return 1 + cast(int, n) }` and `impl Num[T] : Sizer`, at the prompt `var q Num[bool] = 5`, `var s *Sizer =
+  &q`, `testing.Println(s.Size())` prints a pointer plus one (31789804945), not 6.  Boxing the main file's `var a
+  Num[int]` at the prompt is wrong the same way; the same program run by bni outside the REPL, or boxing inside the
+  main module, prints the right value.
+- Cause (likely): an interface call passes a pointer to the receiver, and a value-receiver method's vtable slot needs
+  the iv-dispatch thunk that loads the value; the REPL emits no such thunk for the methods of a generic type's
+  instances emitted at the prompt (generateIvDispatchThunks runs at module generation, GenReplRecvThunk covers only a
+  method declared at the prompt), so the slot names the method itself.  A struct value receiver hides it (the VM's
+  struct copy reads through the pointer); a named scalar does not.
+- Fix (proposed): emit the iv-dispatch thunk for a value-receiver method of an instance the REPL emits, as module
+  generation does.  Test: an e2e/repl.sh case of the session above.
+
+Fixed: when the REPL emits a method of a generic type's instance (emitInstantiatedMethod, under GenCtx.ReplSession,
+which only the REPL session sets, so bnc's output is unchanged), it adds the method's iv-dispatch thunk to the
+module with it (addReplRecvThunk, gen_repl_iface.bn), unless the method needs none or the module already holds one
+of that name (an instance emitted again in place with the same signature, whose thunk calls it by name).  The REPL
+builds an entry's vtables as soon as it lowers the entry, and a slot names the thunk only if the module holds it
+then.  The cause above was right.  A struct receiver with a managed field went wrong too (a trap: the thunk's RefInc
+was missing), as did redefinitions, a parked declaration and a package imported at the prompt.  Tests: repl's
+TestReplGenericValueReceiverThunk (fails without the fix) and three e2e/repl.sh cases,
+generic-value-receiver-dispatch-at-prompt, generic-managed-value-receiver-dispatch-at-prompt and
+generic-value-receiver-dispatch-in-declarations.
+
 ### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — DONE (binate `9115cfaab`, 2026-11-23, temp-4; user: "let's fix the MAJOR now", landed on "wait 7 minutes, then go ahead") (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
 
 parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
