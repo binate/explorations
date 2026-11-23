@@ -360,6 +360,10 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   older MAJOR bugs, in claude-todo.md: a prefix written before an x87 waiting form goes before its FWAIT (stage
   2), and data16 before an operand-size immediate (all three tools: an imm32 the CPU reads as an imm16).
 
-Next: the x87 waiting-form prefix fix (claude-todo.md, MAJOR); data16 before an operand-size immediate once
-decided; then 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a,
-3DNow! with femms).
+- x87 waiting forms after a prefix written as an instruction — landed binate `26a2fec4a` (2026-11-23; user:
+  "actually, go ahead and land now"): the form's FWAIT goes before the prefixes (`fs fstcw word ptr [rax]` 9b 64
+  d9 38, `data16 fstenv [rax]` 9b 66 d9 30), as GNU as; clang emits the prefix first, which makes it the FWAIT's.
+  After the 9B the prefixes keep the order written (GNU as puts a segment's before 66).
+
+Next: data16 before an operand-size immediate (the decision above) with `pushw imm` / `push word ptr imm`; then 3c
+(SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow! with femms).
