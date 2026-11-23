@@ -541,6 +541,14 @@ IR-gen cannot map is an internal error, never `int`.
    at the redefinition for the existing instance types (EmitSupersedingMethod), so its load check runs there.
    Its review found a method expression on an instance (`Cur[X].Get`) named by its spelling -- the new method
    called with the old arguments -- fixed in it: named by the checker's record, as calls and method values are.
+   6b-6 DONE (binate `e23810d7f`, 2026-11-23; user: "Land 6b-6 now, fix next (Recommended)"): the instance-body use
+   recording of binate `38b4fcd11` goes (InstanceState.RecordUses / NewBodies / BodyIsNew, InstWork.Requeued):
+   only the declarations' own checks record the names they use, and not a name read through the view of a generic
+   declared before (an instance's signature or layout derived during the declaration's check) -- C3's needless
+   park is gone.  Its review found that a main-file parameterized impl is checked per instance against the methods
+   as they are now, not as of its generation (a pre-existing MAJOR, filed); with the recording gone a parked
+   incompatible redefinition of a method such an impl covers, not a declaration naming an instance, is what then
+   fails.  The user chose to land 6b-6 first and fix that next.  Stage 6b is done but for that.
    6b-5a DONE (binate `a9ed7ebeb`, 2026-11-22; user: "wait 4 minutes, then land, then continue"): as designed
    for non-generic types, except that the REPL still lowers the redefinition as a shadowing group
    (shadowingFuncs / LowerFuncsShadow) after renaming the superseded method's function, thunk and wrappers (only

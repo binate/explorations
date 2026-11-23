@@ -1,3 +1,19 @@
+### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape, and adding a method to a generic type checks its existing instances again against names redefined since — DONE (binate `25608c022`, `564d1aa1a`, `e23810d7f`, 2026-11-21 to 2026-11-23, work-6; plan-irgen-checker-types stage 6b, decision 7; user: "that sounds fine. let's implement decision 7", landed on "wait 8 minutes, then go ahead", "wait 12 minutes, then land" and "Land 6b-6 now, fix next (Recommended)")
+
+Two REPL entries, both settled by decision 7 (a generic's names, and the methods it selects, mean what they meant
+where it was declared):
+- `func (c *Cur[T]) Get(k int) int` redefining `Get() T`, which a sibling Twice calls: the redefinition was rejected
+  with an instance of Cur emitted, and every later instance of Cur was.  Now the old Get is superseded: it stays on
+  the type and the instances formed before under its hidden name, Twice selects it on every instance, and an
+  instance formed later carries it only where code declared before selects it (binate `564d1aa1a`, 6b-5b; the user's
+  "Only where selected").  e2e/repl.sh shadow-generic-method-keeps-declared-sibling.
+- Adding `get2` to Cell after `g` was redefined made the existing Cell[int] check get's body again against the new
+  g, and get2 was rejected.  Now a generic type's methods resolve their names in a view of the session as of their
+  declaration (binate `25608c022`, C3), so get keeps the old g on every instance.  e2e/repl.sh
+  shadow-generic-method-reads-declared-names.
+- The instance-body use recording of binate `38b4fcd11`, which made a declaration wait for a parked redefinition
+  only an instance it names uses, went with it (binate `e23810d7f`, 6b-6).
+
 ### asm x64: a prefix written before an x87 waiting form went before its FWAIT — `fs fstcw` stored through DS, `data16 fstenv` wrote the 28-byte environment — DONE (binate `26a2fec4a`, 2026-11-23, work-2; user: "Fix both next (Recommended)", landed on "actually, go ahead and land now") (MAJOR: silent wrong code; found 2026-11-22, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
 
 A segment name or `data16` written as an instruction before a waiting x87 form (fstcw, fstsw, fstenv, fsave,

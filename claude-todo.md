@@ -3877,53 +3877,6 @@ is reported rather than parked.  Fix: peel one raw or managed pointer level in r
 noteMissingImpl does for conversions, and key a constraint use on its receiver shape (`*Box:Sizer`), so only an impl
 with that receiver wakes it or counts as binding it; REPL tests for each.
 
-### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape — 🟡 IN PROGRESS (claimed 2026-11-18, work-6, as plan-irgen-checker-types.md stage 6b, decision 7; user: "yes") (found 2026-10-03, work-6, review of the generic-methods-at-the-prompt fix)
-
-`type Cur[T any] struct { v T }`, `func (c *Cur[T]) Get() T { return c.v }`, `func (c *Cur[T]) Twice() T
-{ return c.Get() }`, then `func (c *Cur[T]) Get(k int) int { return k }`: with an instance of Cur already
-emitted the redefinition is rejected (Twice's instance no longer checks); with none it is accepted with the
-shadow warning, and every later instance of Cur is rejected ("wrong number of arguments (in Cur[int].Twice
-…)").  A non-generic type's sibling keeps calling the shadowed method, but a generic type's future instances
-have no old method to call.  Proposed: reject the redefinition whenever a sibling no longer checks against
-it, instance or not.  Also to confirm: signatures are compared at the generic level, so `Get() T` →
-`Get() int` shadows even on `Cur[int]`, whose instantiated signatures match.
-The same question for generic FUNCTIONS (found 2026-10-04, work-6, review of generic functions at the prompt): a
-generic caller instantiated after its callee's name was rebound is checked against the current binding — `g[T]`
-calls `f[T]`; `f` is rebound to a non-generic function; `g[bool]` then fails ("T is a type, not a value … (in
-g[bool] …)"), and once a new generic `f` exists `g[bool]` calls it while `g[int]`, emitted before, keeps the old
-one.  Decide whether old generic bodies should see the binding they were declared against.
-User (2026-10-14), to (B) for generics with parked declarations unchanged: "That sounds good".  They do: a generic's names (type and value)
-resolve where it was declared, and an instance reuses the declaration-time check's records
-(plan-irgen-checker-types.md decision 7).  For generic METHODS that suggests replacing the proposal above: a
-sibling keeps calling the old (shadowed) method, which stays instantiable — to confirm with the user.
-- Decided (user, 2026-11-08): generic methods follow decision 7 — a sibling keeps calling the old (shadowed) method,
-  which stays instantiable — replacing the reject proposal; signatures are compared at the generic level; decision 7
-  is implemented now, and the instance-body use recording of binate `38b4fcd11` goes with it ("that sounds fine.
-  let's implement decision 7").  Re-checked on main `23524484b`: the four sessions above behave as described.
-- Sequenced (user, 2026-11-08): decision 7 goes on stage 6's records, as plan-irgen-checker-types.md stage 6b, not as
-  REPL-only machinery ahead of stages 5 and 6 ("yes, follow the plan").
-
-### REPL: adding a method to a generic type checks its existing instances again against names redefined since — the method is rejected for an error in a sibling's old body — 🟡 IN PROGRESS (claimed 2026-11-18, work-6, as plan-irgen-checker-types.md stage 6b, decision 7, with the entry above; user: "yes") (MAJOR: valid input rejected; found 2026-10-30, work-6, review of the parked-redefinition group rule; reproduced on main before that change)
-
-```
-func g() int { return 1000 }
-type Cell[T any] struct { v T }
-func (b *Cell[T]) get() int { return g() }
-func use() int { var b Cell[int]; return b.get() }
-testing.Println(use())                       1000
-func g() int8 { return 3 }                   warning: g shadowed (incompatible signature); ...
-func (b *Cell[T]) get2() int { return 7 }    cannot assign int8 to int (in Cell[int].get, instantiated at <repl>:1:28)
-var cb Cell[int]                             cannot assign int8 to int (in Cell[int].get, instantiated at <repl>:1:12)
-```
-- Cause: adding get2 queues every program-named instance of Cell again (requeueTypeInstances,
-  check/check_instance_live.bn), and the existing Cell[int] checks get's body again, against the new g — though
-  Cell[int].get is an existing caller, which keeps the old g ("existing callers retain old definition").  After
-  that, `var cb Cell[int]` fails the same way.  (A new instance, Cell[bool], whose get would call the new g, is a
-  real error.)
-- Related: the entry above (an incompatible redefinition of a generic method a sibling still calls).
-- Needs: the user's rule for what an existing instance is checked against when a method is added; then the fix, with
-  a repl test of this session.
-
 ### `readonly T` does not satisfy T's constraint, though `readonly int` satisfies `int`'s — 🔴 NEEDS DECISION (found 2026-10-16, work-6, review of the Self-constraint proposal; reproduced; pre-existing)
 
 Inside `func f[T lang.Orderable](t T)`, `g[readonly T](r)` (for `func g[U lang.Orderable]`) is rejected ("type
