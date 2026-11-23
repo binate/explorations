@@ -343,6 +343,17 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   of the 85 names and 17 operand kinds, every [rip + x] / symbol form (ELF, Mach-O), and an MMX-register sweep of
   every LLVM mnemonic (but the SSSE3 MMX forms and 3DNow!, 3c / 3d).
 
-Next: rex64 as GNU as (its REX.W after the legacy and mandatory prefixes, merged into the instruction's REX; the
-decision above), a commit of its own; then 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key
-Locker's XMM forms, SSE4a, 3DNow! with femms).
+- rex64 — landed binate `668d26212` (2026-11-22; user: "go ahead and land"): rex64 before an instruction is its
+  REX.W, after the legacy and mandatory prefixes and merged into the instruction's own REX, as GNU as places it
+  (asm.Assembler.X64RexW in the instruction-byte emitters; `rex64 mov r9d, eax` 49 89 c1, `rex64 movd xmm0, eax`
+  66 48 0f 6e c0, `rex64 lock add` f0 48, `rex64 fstcw` 9b 48 d9 38); alone, or before prefixes alone, its 48.
+  Errors, as GNU as: a REX.W of the instruction's own, two rex64 before an instruction, VEX / XOP after it; and
+  (the decision above) an immediate REX.W widens (X64RexWide: MOV's B8+r one, a 16-bit one).  rex64 before ah..dh
+  stays an error everywhere: GNU as rejects it beside a register or memory operand but encodes `rex64 mov dh, 5`
+  as 48 b6 05, which is mov sil, 5 (so "as GNU as" in 1k1 above holds for those forms only).  Its review found two
+  older MAJOR bugs, in claude-todo.md: a prefix written before an x87 waiting form goes before its FWAIT (stage
+  2), and data16 before an operand-size immediate (all three tools: an imm32 the CPU reads as an imm16).
+
+Next: the x87 waiting-form prefix fix (claude-todo.md, MAJOR); data16 before an operand-size immediate once
+decided; then 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a,
+3DNow! with femms).
