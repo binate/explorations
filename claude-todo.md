@@ -567,6 +567,18 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### native/common.bni is near its 1000-line cap: the in-place frame analyses could move to a package of their own — 🔴 OPEN (found 2026-11-22, work-3; user chose to add to the file for now)
+
+pkg/binate/native/common.bni is at about 968 lines (2026-11-22).  The natural split found: the in-place frame
+analyses, which only PlanFrame's planning and the backends ask -- AggLoadElision / AggLoadElider / AGG_LOAD_* (also
+asked by codegen and the VM), CallResultSlots / ReturnedCallResults, LastUseArgLoads, RetbufLocal,
+InPlaceParamSlots -- with what they share: funcUses / idSet / slotGroups (the files define their own methods on
+funcUses and read its fields, so all of them move together), the whole-use predicates (common_aggload_whole.bn) and
+scopeEndStrictlyBetween. Checked scope: 7 source files (1,500 lines), 10 test files (2,603 lines); helpers shared
+with native/common (callArgBase, isIndirectCallOp, frameAdd, AppendInt) exported from the new package or
+duplicated; common.bni loses about 75 lines (the RegMap methods such as CallResultSlot stay); codegen, the VM and
+the three backends import the new package, and CLAUDE.md's BUILDER-surface list gains it.
+
 ### Native PlanFrame's region sharing runs a liveness pass of its own — about 2% of native compile time — 🟡 IN PROGRESS (claimed 2026-11-22, work-3; user: "go ahead and do the follow-ups")
 
 regionSpans (native/common/common_region_share.bn, binate `02d1e098a`) computes the liveness of aggregate values
