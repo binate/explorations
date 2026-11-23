@@ -1,3 +1,17 @@
+### unsafe_cast's container retype asks Identical at every level — DONE (binate `8bdaf2071`, 2026-11-23, work-1)
+
+isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and each walks every level
+below, so an `unsafe_cast` of containers n deep whose elements match down to the bottom (`@[]@[]…int8` to
+`@[]@[]…uint8`) takes time quadratic in n -- bounded by the parser's nesting limit (512): a cast and an unsafe_cast
+500 deep compile in 0.17 s for the whole program.  The user chose (2026-11-23) to make it linear: two identical
+containers have identical elements, so the identical pairs are the bottom of the chain, and only the pair where the
+walk stops needs comparing (a stop for an element of unknown size included: there the pair above it answered
+"identical" before).
+Done 2026-11-23 (binate `8bdaf2071`): the walk compares only the pair it stops at (the top pair excepted).  The
+bound above is wrong: a chain of aliases (`type S0 = @[]S1`, ...) nests a type past the parser's 512, to the 1,024-level
+type cap, so the old cost was at most ~5 x 10^5 steps per unsafe_cast.  TestDeepUnsafeRetypeUnnamed (200,000 deep),
+TestUnsafeRetypeIdenticalUnknownSize.
+
 ### Native frames: aggregate values' pointer slots were never shared — DONE (binate `0c2bcea66`, 2026-11-23, work-3; user: "Share aggregate pointer slots (Recommended)")
 
 PlanFrame computes the aggregate values' live hulls (aggregateHulls, REGCLASS_AGG over the function's LiveCFG, now
@@ -29,9 +43,11 @@ Done 2026-11-23: AssignableTo keeps the decaying side's kind down the chain (dec
 each side once, before the loop -- the review of the first version found ensureMembers still walking the chain at
 each step while an instance was postponed (binate `c02caeb8d`).  A 20,000-link chain assigned both ways: 5.6-6.2 s
 from 9.2-9.6 s.  TestDeepNamedDecay (200,000 links, with an instance postponed).  The cast retype's per-level
-readonly checks: closed as bounded, the user's choice (2026-11-23) -- the parser's nesting limit (512) bounds a
-retype's depth, a cast and an unsafe_cast 500 deep compile in 0.17 s for the whole program, and making the checks
-linear would mean per-level readonly rules, which see below a named type where the whole-type check stops.
+readonly checks: closed as bounded, the user's choice (2026-11-23) -- the 1,024-level type cap bounds a retype's
+depth (a chain of aliases, `type S0 = @[]S1`, ..., nests a type past the parser's 512; the first ask cited the 512,
+and the user confirmed the closing on the corrected bound): a cast retype 1,000 levels deep through aliases adds
+0.15-0.2 s to the program.  Making the checks linear would mean per-level readonly rules, which see below a named
+type where the whole-type check stops.
 
 ### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — DONE (binate `60e0b1d95`, 2026-11-23, work-6; user: "Per row, all backends (Recommended)", landed on "1. yes. 2. yes, fix that next") (MAJOR; valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
 
