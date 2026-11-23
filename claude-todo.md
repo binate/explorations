@@ -7,6 +7,27 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### asm x64: a prefix written before an x87 waiting form goes before its FWAIT — `fs fstcw` stores through DS, `data16 fstenv` writes the 28-byte environment — 🔴 OPEN, unclaimed (MAJOR: silent wrong code; found 2026-11-22, work-2, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
+A segment name or `data16` written as an instruction before a waiting x87 form (fstcw, fstsw, fstenv, fsave,
+fclex, finit) is emitted where it is written, before the form's FWAIT (9B), as clang emits it: `fs fstcw word ptr
+[rax]` is 64 9b d9 38 and `data16 fstenv [rax]` 66 9b d9 30.  The prefix then belongs to the FWAIT, so fnstcw
+stores through DS and fnstenv writes the 28-byte environment where the 14-byte one was asked for.  GNU as puts it
+after the 9B (9b 64 d9 38, 9b 66 d9 30), as bnas already does for a segment written in the operand (`fstcw word
+ptr fs:[rax]` 9b 64 d9 38) and for `{rex}` and `rex64`.  Fix: when a prefix written as an instruction has a
+waiting x87 form after it on its line, emit the form's FWAIT before the prefix and not again with the form
+(parse/x64_prefix.bn looking past the prefixes to the instruction's name, as x64PrefixesOnly does;
+x64X87Instruction and the zero-operand forms skipping their FWAIT).  Tests: the two lines above, `fs data16 fstenv
+[rax]`, `gs finit`, against GNU as.
+
+### asm x64: `data16` before an instruction with an operand-size immediate emits an imm32 the CPU reads as an imm16 — 🔴 OPEN, NEEDS DECISION (MAJOR: silent wrong code in bnas, clang and GNU as alike; found 2026-11-22, work-2, the review of the rex64 change)
+`data16 mov eax, 1` is 66 b8 01 00 00 00 in bnas, clang and GNU as; with the 66 the CPU reads `mov ax, 1` (66 b8
+01 00) and then 00 00 as `add [rax], al`.  The same holds for `data16 add eax, 0x12345678` (66 05 and an imm32),
+`data16 test eax, 1`, `data16 imul eax, ebx, 1000`, `data16 mov dword ptr [rax], 1` and `data16 push 0x1234` (66
+68 and an imm32 in bnas and clang; GNU as alone emits the imm16 there, 66 68 34 12).  The imm8 forms are sound
+(`data16 add eax, 1`, 66 83 c0 01).  It mirrors rex64 before an immediate REX.W widens, which the user chose to
+reject (2026-11-22, plan-asm-x64-isa.md).  Options: reject data16 before an instruction whose operand-size
+immediate it narrows, as for rex64; or emit the narrowed immediate, as GNU as does for push.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
