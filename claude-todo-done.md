@@ -1,3 +1,25 @@
+### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — DONE (binate `9115cfaab`, 2026-11-23, temp-4; user: "let's fix the MAJOR now", landed on "wait 7 minutes, then go ahead") (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
+
+parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
+consumed the comma, and when the next token is not an IDENT it falls through to the single-ident path, which
+continues `x` as an operand.  So `for x, (y) = 1, 2; x < 0; {` parses as `for x(y) = 1, 2` (bnc: "cannot call
+non-function", "assignment count mismatch"), and `for x, *p = 1, 2; ; {` as `for x * p = 1, 2`; bnfmt prints those
+trees without the comma, so `bnfmt -w` rewrites the file.  When the token is an IDENT not followed by `in`, the
+list is rebuilt from the two bare idents, so a postfix after the second is lost: `for x, y.f = 1, 2; ; {` and `for
+x, y[0] = 1, 2; ; {` are parse errors.  Outside a loop header `x, (y) = 1, 2` parses right (bnfmt prints `x, y =
+1, 2`).  In each form found the misparse loses an assignment target, so the checker rejects it; no program found
+compiles to other code.
+Fixed: after the comma, unless the next tokens are a name and `in`, the clause's expression list goes on as any list
+does (continueName continues an expression a second name starts, a level below the clause), and a comma with nothing
+after it is an error -- `for x, = 1; ; {` and `for x, {` had been taken as `for x = 1` and `for x {`.  The same
+commit fixes two nesting slips of the single-name path: its own `mark` hid the reach before the `for` from
+finishForWithStmt, so a deep nesting in the statements before such a loop went unreported past the limit (with 300
+parentheses in a statement before the loop, up to 507 selectors after the function literal went unreported, against
+208 the other way round), and a too-deep `for x {` was reported at the `{`, not at `x`.  Tests: parse_for_test.bn
+TestParseForInitListAfterAName and TestParseForDanglingCommaRejected; parse_depth_test.bn
+TestNestingKeptPastAForClause and TestNestingForClauseReportedAtItsName; format print_header_test.bn
+TestForInitListAfterAName.  The review of the fix found the `a, b++` MAJOR (its own entry).
+
 ### asm x64: `data16` before an instruction with an operand-size immediate emitted an imm32 the CPU reads as an imm16 — DONE (binate `dda6e4f85`, 2026-11-23, work-2; user: "Reject, add pushw imm (Recommended)", "Reject both (Recommended)" for the relative branches, landed on "wait 4 minutes, then land") (MAJOR: silent wrong code in bnas, clang and GNU as alike; found 2026-11-22, the review of the rex64 change)
 
 `data16 mov eax, 1` is 66 b8 01 00 00 00 in bnas, clang and GNU as; with the 66 the CPU reads `mov ax, 1` (66 b8

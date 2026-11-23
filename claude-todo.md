@@ -20,22 +20,6 @@ multi-value result (compiler bug)".
   the operator, as an expression statement with a list reports "expected assignment or declaration".
 - Tests: parser cases for `a, b++`, `a, b--` and `a, b += 1` as a statement and as a loop's init and post.
 
-### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — 🟡 IN PROGRESS (claimed 2026-11-23, temp-4) (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
-
-parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
-consumed the comma, and when the next token is not an IDENT it falls through to the single-ident path, which
-continues `x` as an operand.  So `for x, (y) = 1, 2; x < 0; {` parses as `for x(y) = 1, 2` (bnc: "cannot call
-non-function", "assignment count mismatch"), and `for x, *p = 1, 2; ; {` as `for x * p = 1, 2`; bnfmt prints those
-trees without the comma, so `bnfmt -w` rewrites the file.  When the token is an IDENT not followed by `in`, the
-list is rebuilt from the two bare idents, so a postfix after the second is lost: `for x, y.f = 1, 2; ; {` and `for
-x, y[0] = 1, 2; ; {` are parse errors.  Outside a loop header `x, (y) = 1, 2` parses right (bnfmt prints `x, y =
-1, 2`).  In each form found the misparse loses an assignment target, so the checker rejects it; no program found
-compiles to other code.
-- Fix: after the comma, unless the next tokens are `IDENT in`, parse the rest as an expression list -- the first
-  ident, then a full expression (the second ident continued with continuePostfix / continueBinaryExpr, as the
-  single-ident path does, or parseExpr) and any more after commas -- then finishSimpleStmt.
-- Tests: parse_for_test.bn cases for `(y)`, `*p`, `y.f` and `y[0]` after the comma; a bnfmt golden test.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
