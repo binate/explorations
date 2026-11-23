@@ -265,3 +265,8 @@ today.
   slots 3,040 / 3,872 / 27,696; argument copies 8,216 / 8,216 / 21,792; unscoped allocas 12,376 / 416 / 9,280;
   alignment 1,168 / 1,136 / 5,712.  So the argument copies (the open todo) are 5-8%; the largest piece left is the
   aggregate values' pointer slots (about a fifth of every frame), which have live intervals since step 3.
+- Aggregate pointer slots shared by live span: binate `0c2bcea66` (2026-11-23).  parsePrimaryExpr native aarch64 /
+  x64 / arm32 at -O0 1,152 / 1,168 / 704, at -O2 1,040 / 1,040 / 704 (LLVM -O2 aarch64 1,344); the parser's frames
+  at -O2 (aarch64) 80,752 bytes against LLVM's 77,376, irgen's 339,520 against 170,848.  Before it, binate
+  `61ab9d237` (2026-11-22) gave each function's liveness passes one shared CFG and the aggregate pass hulls only,
+  bringing native compile time back below where it was before step 3.

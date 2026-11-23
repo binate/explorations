@@ -1,3 +1,13 @@
+### Native frames: aggregate values' pointer slots were never shared — DONE (binate `0c2bcea66`, 2026-11-23, work-3; user: "Share aggregate pointer slots (Recommended)")
+
+PlanFrame computes the aggregate values' live hulls (aggregateHulls, REGCLASS_AGG over the function's LiveCFG, now
+with the folded GEPs) before the spill slots and records them as those values' spans (noteAggregateSpans;
+multi-return tuples excluded), so planSharedSpills packs the 8-byte pointer slots with the scalars'.
+parsePrimaryExpr native aarch64 / x64 / arm32 at -O2: 1,824 -> 1,040 / 1,824 -> 1,040 / 1,488 -> 704 (LLVM -O2
+aarch64 1,344); the parser's frames at -O2 99,872 -> 80,752 bytes, irgen's 414,912 -> 339,520.  Full native aa64
+-O0 / -O2, x64, arm32 bare metal 3979 / 3979 / 3980 / 3935, 0 failed; arm32 Linux subset 641/0.  Conformance 1770.
+The review's larger idea (drop a region-owning value's pointer slot and its store) is filed in claude-todo.md.
+
 ### The container retypes and AssignableTo's decay through named types: AssignableTo's decay, and the cast retype -- DONE (binate `c02caeb8d`, 2026-11-23, work-1; unsafe_cast's retype stays open)
 
 The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below

@@ -635,14 +635,6 @@ the review of the pointer-slot sharing (which shares these slots, 2026-11-23).  
 values with a region would save more frame bytes than sharing them and a store per value; the x64 stash would need
 a slot of its own.  Measure how many of the shared pointer slots belong to values with regions first.
 
-### Native frames: aggregate values' pointer slots are never shared — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "Share aggregate pointer slots (Recommended)") (found 2026-11-22, work-3, measuring the frame bytes after plan-native-frame-slots.md step 3)
-
-Aggregate values' pointer slots (an 8-byte spill slot holding the address of the value's bytes) are never shared:
-21% of the parser's native aarch64 frame bytes at -O2 and 22% of irgen's (plan-native-frame-slots.md, Progress,
-2026-11-22).  Since step 3 (binate `02d1e098a`) aggregate values have live intervals (REGCLASS_AGG); give their
-pointer slots step 2's spill-slot sharing (planSharedSpills) by each value's own interval: the slot is written at
-the definition and read at uses.  Multi-return tuple slots stay as they are.
-
 ### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3; measured 2026-11-22 at 5-8% of the native frame bytes, see the plan's Progress)
 
 After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64
