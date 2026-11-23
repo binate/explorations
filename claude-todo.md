@@ -3018,10 +3018,12 @@ spec's ast.Header does (Binder, Assign):
   // c` / `(b + c)`), and at a statement's start the comment goes on a line of its own above it.  Every gap
   before an expression, and a statement's leading comments, end at its first token other than `(`
   (exprStartPos), so none is left for the `(`.  Fix (user, 2026-11-22: "Start counts the `(` (Recommended)",
-  and for a line comment "In place, break after `(`"): exprStartPos returns the `(` of the outermost
-  parenthesized node on the expression's left edge (openAround), so every gap before an expression ends there;
-  what writes the `(` writes the comments after it, breaking after a line comment as a call's `(` does, and
-  where bnfmt drops the parentheses they print before the expression, as now;
+  and for a line comment "In place, break after `(`"; refined, as a dropped `(`'s line comment would otherwise
+  change: "Start at a written `(` (Recommended)"): exprStartPos returns the `(` (openAround) of the first
+  parenthesized node on the expression's left edge that bnfmt prints in parentheses, decided with the printer's
+  own tests (binOperandParens, postfixHeadParens, dotHeadParens, printComposite's), the gaps before an
+  operator's operand, a unary's operand and a condition saying so; what writes the `(` writes the comments after
+  it, breaking after a line comment as a call's `(` does, and a dropped `(`'s stay with the gap before, as now;
 - right after a variadic parameter's `...`, in a signature or a function value: `func f(a int, b ... /* d */ int)`
   prints `b /* d */ ...int`, and `*func(int, ... /* c */ int)` prints `*func(int, /* c */ ...int)` (bnfmt
   `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types).
