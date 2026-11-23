@@ -255,3 +255,13 @@ today.
   Linux subset 638/0.  Native compile medians about 2% slower (irgen +2.2%, check +2.4%, noise floor 0.8%; minimums
   equal), from the extra liveness pass.  All five steps done; left: a call's copies of its by-reference struct
   arguments (claude-todo.md).
+- 2026-11-22, after binate `61ab9d237`: where native aarch64's frame bytes are now (all functions of a package; a
+  temporary breakdown under `--x-copy-stats`, not landed).  parser -O0 / parser -O2 / irgen -O2: total 105,520 /
+  99,872 / 414,160 (LLVM 185,952 / 77,376 / 170,848 -- irgen's native frames are 2.4x LLVM's at -O2, the parser's
+  1.3x). Unshared spill slots 25,912 / 29,840 / 153,024 -- of them aggregate values' pointer slots 17,584 / 20,984
+  / 90,120, multi-return tuples 416 / 416 / 7,824, other values (a slot, no recorded span) 7,912 / 8,440 / 55,080;
+  scoped allocas (shared) 33,680 / 29,896 / 53,640; shared regions 10,168 / 11,224 / 45,248 and regions of their
+  own 1,920 / 1,416 / 5,648; register saves 4,192 / 9,008 / 53,984; parameters 4,144 / 4,144 / 34,632; shared spill
+  slots 3,040 / 3,872 / 27,696; argument copies 8,216 / 8,216 / 21,792; unscoped allocas 12,376 / 416 / 9,280;
+  alignment 1,168 / 1,136 / 5,712.  So the argument copies (the open todo) are 5-8%; the largest piece left is the
+  aggregate values' pointer slots (about a fifth of every frame), which have live intervals since step 3.
