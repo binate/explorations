@@ -2943,6 +2943,18 @@ LLVM follows the ring through its own type graph, presumably recursively.  The n
 Options: describe a struct reached through a pointer by a declaration (DIFlagFwdDecl with an identifier) so the
 graph has no long path, or accept it as LLVM's limit.
 
+### A chain of aliases over containers of the next (`type S0 = @[]S1`) is checked in time quadratic in its length — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-23, work-1, review of the unsafe_cast retype change; pre-existing)
+
+checkDeclsEmbedding's requireSizedType walks each alias declaration's whole type, and an alias over a container of
+the next alias is a type as deep as the rest of the chain, so the opaque rules (rulesSigsStep,
+partsPointToOpaqueEmbedding / pointsStep) and requireFittingParts take time linear in that depth for each
+declaration.  The kept sized aliases (check_sized_kept.bn, binate `18aa10c40`) stop only at an alias reached
+through alias and readonly links from the top, not at one inside a container.  Valid chains reach 1,024 levels
+(type.named.depth): 250 links 0.09 s, 500 0.22 s, 1,000 0.79 s (user CPU, current main's checker); past the cap
+each declaration is reported too deep after the same walks (4,000 links 13 s).  Fix: let these walks stop at a
+kept alias anywhere in a type, which needs the kept answers per view and frame the opaque walks take (pointsStep,
+rulesSigsStep).
+
 ### unsafe_cast's container retype asks Identical at every level — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 
 isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and each walks every level
