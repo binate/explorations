@@ -371,5 +371,13 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   d9 38, `data16 fstenv [rax]` 9b 66 d9 30), as GNU as; clang emits the prefix first, which makes it the FWAIT's.
   After the 9B the prefixes keep the order written (GNU as puts a segment's before 66).
 
-Next: data16 before an operand-size immediate (the decision above) with `pushw imm` / `push word ptr imm`; then 3c
-(SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow! with femms).
+- data16 — landed binate `dda6e4f85` (2026-11-23; user: "wait 4 minutes, then land"): data16 before an imm32 it
+  narrows (MOV B8+r / C7, ALU 05 / 81, TEST A9 / F7, IMUL 69, push's 68) or before a relative branch without REX.W
+  (xbegin, jmp, jcc, call, the loop family) is an error, as decided above (asm.Assembler.X64Data16;
+  x64.Data16BranchOk); REX.W, a 64-bit register's or rex64's, overrides the 66.  GNU as's `pushw imm` / `push word
+  ptr imm` give the 16-bit push of an immediate (66 6A ib / 66 68 iw; `push word ptr 2*3` the shorter 66 6a 06
+  where GNU as has 66 68 06 00, and `pushw 0x10000` an error where GNU as truncates).  data16 alone on its line
+  before an instruction on the next stays its 66, as in GNU as.
+
+Next: 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow! with
+femms).
