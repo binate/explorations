@@ -20,6 +20,8 @@ render cache's key did not record the condition state.
 - Tests: print_inlineclose_test.bn TestCloserCommentsOfKeptParensInConditions; print_rendermemo_test.bn
   TestRenderCacheKeepsConditionsApart and TestConditionChainsPrintFew (a chain of the nine precedences in an `if`
   prints 1,520 chains with a fresh rendering of each operand, against 99 in a statement).
+  The coverage review added TestRenderKeyComparesConditionState (binate `46d66c933`): the cache's table compares
+  only the keys it probes, so a key comparison ignoring the condition state passed every other test.
 - Validation: of 1,468 such comments in 300 generated files, every one stays in place (main: 92), with no file
   unstable or wider; 26,085 corpus files, the tree's included, format as on main.  Real files take the same time;
   a 518-line commented chain in an `if` takes 0.20 s against main's 0.69 s.
