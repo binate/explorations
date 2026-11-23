@@ -1278,6 +1278,18 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   needs anything (a qualified name is named by its package path, recordedSymName).  Test: e2e/repl.sh cases of the
   sessions above (the two-package one needs fixture packages).
 
+### REPL: an import silently replaces a session type of the same name — 🔴 OPEN MINOR (valid code rejected later, no diagnostic at the import; found 2026-11-22, work-6, review of the import-name versioning; pre-existing: a bni from main as of binate `d360164ab`)
+
+- Symptom: at the prompt `type qb struct { v int }`, `func g[X any](x X) int { var q qb; q.v = 3; return q.v }`,
+  then `import "pkg/qb"` (any package whose name is qb) loads with no warning or error, and `g[int](1)` -- an
+  instance made after it -- fails "qb is not a type".  The reverse order is rejected (`type strings struct ...` after
+  `import "pkg/std/strings"`: "cannot redefine package strings as a type").
+- Cause: the import's package binding replaces the type's in the session scope, and types are not versioned
+  (check_repl_versions.bn), so a generic's view finds the package.
+- Fix (proposed): reject such an import, as the reverse is, until plan-repl-type-shadowing.md
+  (plan-irgen-checker-types stage 8) decides how a type's name is shadowed.  Test: an e2e/repl.sh case of the
+  session above.
+
 ### REPL: an instance of a non-generic type parks the declaration with an empty pending list — 🔴 OPEN MINOR (wrong diagnostic; found 2026-11-21, work-6, writing an e2e case for plan-irgen-checker-types 6b-3b; pre-existing: a bni from main as of binate `26767b035`)
 
 - Symptom: with a main file declaring `type Box struct { V int }`, `var bx Box[int]` at the prompt prints
