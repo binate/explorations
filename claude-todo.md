@@ -2914,18 +2914,6 @@ LLVM follows the ring through its own type graph, presumably recursively.  The n
 Options: describe a struct reached through a pointer by a declaration (DIFlagFwdDecl with an identifier) so the
 graph has no long path, or accept it as LLVM's limit.
 
-### Checking a chain of named types over named types takes time superlinear in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
-
-The pointer rule, the fitting check, the prefill (binate `3464db8b4`) and checkDeclsEmbedding's opaque-value check
-(binate `2fda0225b`) now take a chain a link at a time (claude-todo-done.md): 20,000 links `type N0 N1`, ..., `type Nn
-int8` take ~5.3 s (from 224 s), a 10,000-link alias chain ~4.2 s (from 13-14 s).  Still walking the rest of the chain
-for each declaration:
-- on an alias chain (still quadratic: 1.1 s at 5,000 links, 24.6 s at 20,000), the checker's walks of each
-  declaration: the opaque rules' stepAlias (requireSizedType), requireFittingParts / partTooLarge, and
-  resolvePendingAliasNamed while collecting (IR-gen's isAbstractType, binate `4273124c8`, is done);
-- the scans quadratic in a package's declaration count ("Checking is quadratic in a package's number of
-  declarations": checkDuplicateDecls, preRegisterTypeNames / Scope.Define, checkImportDeclCollisions, the loader).
-
 ### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 
 The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
