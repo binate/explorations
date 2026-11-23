@@ -2809,6 +2809,12 @@ keywords `float ptr` (a dword), `double ptr` (a qword) and `long ptr` (a dword) 
 ("Expected 'PTR' or 'ptr' token!") — fix the two together, as the new keywords would otherwise take symbols named
 `float` / `double` / `long`; and `offset st` (an `offset` of a register's name) is rejected where clang reads the
 name as a symbol (R_X86_64_32 against `st`).
+Found 2026-11-23 (review of plan-asm-x64-isa.md stage 3c), no wrong code: the CET prefix `notrack` (3E) is
+rejected ("expected ','") where clang and GNU as take it before an indirect branch (`notrack jmp rax` 3e ff e0,
+`notrack call qword ptr [rax]` 3e ff 10); clang takes it before any instruction (`notrack add eax, ebx` 3e 01 d8),
+GNU as only before an indirect branch ("expecting indirect branch instruction after `notrack'") — a decision for
+the user.  An unknown mnemonic with three operands reports "unexpected token after the instruction's operands",
+not "unknown instruction" (`extrq xmm0, 1, 2`, `pcmpestriq xmm0, xmm1, 1`).
 
 ## bnld (self-hosted linker)
 
