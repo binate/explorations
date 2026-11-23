@@ -525,10 +525,15 @@ IR-gen cannot map is an internal error, never `int`.
    method-value wrappers to the hidden spellings, in IR-gen when the redefinition is generated and in the VM
    (Vm.RenameFunc) when it is kept, instead of shadow-lowering and unbinding them.  6b-5a: methods of non-generic
    types (e2e: the probe above).  6b-5b: methods of generic types -- the superseded GenericMethodEntry stays
-   recorded under its hidden name, so every instance takes it as a member (copied, checked and emitted: "Carry for
-   every instance"); an existing instance's copy is renamed in place instead of dropped; IR-gen keeps the superseded
-   declaration stashed and emits its instances under the hidden name, renaming the instances and wrappers already
-   emitted; ShadowReplGenericMethod, EmitShadowedMethod and Vm.UnbindFunc go; e2e s1, s2.
+   recorded under its hidden name; an existing instance's copy is renamed in place instead of dropped; IR-gen keeps
+   the superseded declaration stashed and emits its instances under the hidden name, renaming the instances and
+   wrappers already emitted; ShadowReplGenericMethod, EmitShadowedMethod and Vm.UnbindFunc go; e2e s1, s2.
+   Decided (user 2026-11-22, "Only where selected", replacing 2026-11-18's "Carry for every instance"): a
+   superseded version is copied onto an instance formed later -- and checked and emitted there -- only when code
+   declared before the supersession selects it, and the infinite-family check reads only the type's current
+   methods.  Carried on every instance, a growing version (`Wrap() Box[Opt[V]]`) once defined made the type an
+   infinite family for the rest of the session, even after Wrap was redefined back (check's
+   TestExpandVerdictFollowsRedefinition: "generic instantiation Box[int] names infinitely many instantiations").
    6b-5a DONE (binate `a9ed7ebeb`, 2026-11-22; user: "wait 4 minutes, then land, then continue"): as designed
    for non-generic types, except that the REPL still lowers the redefinition as a shadowing group
    (shadowingFuncs / LowerFuncsShadow) after renaming the superseded method's function, thunk and wrappers (only
