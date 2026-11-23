@@ -7,6 +7,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### parser: `a, b++` keeps only `a++` (bnc runs it, bnfmt deletes the `b`), and `a, b += 1` crashes IR-gen — 🔴 OPEN (MAJOR: the compiler accepts invalid code with part of it dropped, and crashes on the compound form; found 2026-11-23, temp-4, the review of the for-header comma fix; pre-existing, bnc-0.0.17 and main alike)
+
+finishSimpleStmtInner (pkg/binate/parser/parse_stmt.bn) builds a `++` / `--` statement from the first expression of
+the list before it and drops the rest, and keeps the whole list before a compound operator (`+=` …), where the
+grammar takes one Expression for both (`IncDecStmt = Expression ( "++" | "--" )`, `Assignment = … | Expression
+compound_assign_op Expression`).  So `a, b++` parses as `a++`: bnc-0.0.17 compiles and runs it (with a = 1, b = 10
+it prints `2 10`), and bnfmt prints `a++`, so `bnfmt -w` deletes the `b`; a loop's post `a, b--` prints as `a--`.
+`a, b += 1` passes the checker and IR-gen panics: "internal error: IR-gen has no type for a component of a
+multi-value result (compiler bug)".
+- Fix: when the list before `++`, `--` or a compound operator holds more than one expression, report an error at
+  the operator, as an expression statement with a list reports "expected assignment or declaration".
+- Tests: parser cases for `a, b++`, `a, b--` and `a, b += 1` as a statement and as a loop's init and post.
+
 ### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — 🟡 IN PROGRESS (claimed 2026-11-23, temp-4) (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
 
 parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
