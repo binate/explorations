@@ -189,6 +189,12 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   reads as an imm16 and then the rest as another instruction (GNU as alone narrows push's).  The 16-bit forms are
   written with a 16-bit operand (`mov ax, 1`); for push, GNU as's `pushw imm` / `push word ptr imm` (66 68 iw) is
   added, which bnas lacked (clang drops the size there: `push word ptr 0x1234` 68 imm32).
+- data16 before a relative branch (user, 2026-11-23: "Reject both (Recommended)"): an error before xbegin and
+  before a relative jmp / jcc / call / loop-family branch without REX.W.  bnas and clang emit the 66 and a rel32:
+  Intel's SDM makes 66 C7 F8 cw XBEGIN rel16, so every CPU reads a rel16 and 2 stray bytes; on a near branch Intel
+  ignores the 66 in 64-bit mode and AMD honors it (a rel16 and a 16-bit target), so the length depends on the CPU
+  (GNU as narrows call to rel16, broken on Intel the other way).  With REX.W the 66 has no effect: `data16 data16
+  rex64 call __tls_get_addr@PLT` stands.
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
