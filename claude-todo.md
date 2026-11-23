@@ -2951,23 +2951,15 @@ LLVM follows the ring through its own type graph, presumably recursively.  The n
 Options: describe a struct reached through a pointer by a declaration (DIFlagFwdDecl with an identifier) so the
 graph has no long path, or accept it as LLVM's limit.
 
-### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
+### unsafe_cast's container retype asks Identical at every level — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 
-The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
-it: isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and isAggregateLeafRetype /
-bitPreservingElem ask Identical and the readonly checks (elemReadonlyKept: DropsConstStrict, addsReadonlyAt).  So a
-retype of containers n deep whose elements match down to the bottom (`@[]@[]…int8` to `@[]@[]…uint8`) takes time
-quadratic in n: with the walks made loops (deep-nesting check part 3), a 200,000-level one ran 4 minutes without
-finishing, and the deep test puts named types on the source side, where each level's checks stop at once.  A declared
-container type is cut at 1024 levels (type.named.depth) and an inline one will be bounded by the parser's nesting
-limit, so this is at most ~10^6 steps per retype.  AssignableTo decays a chain of named types over named types (`type
-N0 N1`, `type N1 N2`, …) one name at a time, and each step walks the rest of the chain -- ComparabilityKind
-(StripWrappers), and ensureMembers while instances wait -- and names add no depth, so no limit bounds the chain
-(done/plan-deep-nesting.md, step 3: such chains scale badly).  Fix: isUnsafeAggregateLeafRetype can ask Identical of the
-deepest pair only (elements identical at one level are identical at every level below, which the walk then
-reaches); the cast retype needs its readonly checks made one level at a time, which differs from the whole-type
-check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
-decayed side's stripped kind down the chain.
+isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and each walks every level
+below, so an `unsafe_cast` of containers n deep whose elements match down to the bottom (`@[]@[]…int8` to
+`@[]@[]…uint8`) takes time quadratic in n -- bounded by the parser's nesting limit (512): a cast and an unsafe_cast
+500 deep compile in 0.17 s for the whole program.  The user chose (2026-11-23) to make it linear: two identical
+containers have identical elements, so the identical pairs are the bottom of the chain, and only the pair where the
+walk stops needs comparing (a stop for an element of unknown size included: there the pair above it answered
+"identical" before).
 
 ### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
 

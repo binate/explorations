@@ -1,3 +1,28 @@
+### The container retypes and AssignableTo's decay through named types: AssignableTo's decay, and the cast retype -- DONE (binate `c02caeb8d`, 2026-11-23, work-1; unsafe_cast's retype stays open)
+
+The checker's container retypes ask, at each level of a chain of containers, questions that walk every level below
+it: isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and isAggregateLeafRetype /
+bitPreservingElem ask Identical and the readonly checks (elemReadonlyKept: DropsConstStrict, addsReadonlyAt).  So a
+retype of containers n deep whose elements match down to the bottom (`@[]@[]…int8` to `@[]@[]…uint8`) takes time
+quadratic in n: with the walks made loops (deep-nesting check part 3), a 200,000-level one ran 4 minutes without
+finishing, and the deep test puts named types on the source side, where each level's checks stop at once.  A declared
+container type is cut at 1024 levels (type.named.depth) and an inline one will be bounded by the parser's nesting
+limit, so this is at most ~10^6 steps per retype.  AssignableTo decays a chain of named types over named types (`type
+N0 N1`, `type N1 N2`, …) one name at a time, and each step walks the rest of the chain -- ComparabilityKind
+(StripWrappers), and ensureMembers while instances wait -- and names add no depth, so no limit bounds the chain
+(done/plan-deep-nesting.md, step 3: such chains scale badly).  Fix: isUnsafeAggregateLeafRetype can ask Identical of the
+deepest pair only (elements identical at one level are identical at every level below, which the walk then
+reaches); the cast retype needs its readonly checks made one level at a time, which differs from the whole-type
+check wherever that check stops at a named type and the per-level one looks below it; AssignableTo can carry a
+decayed side's stripped kind down the chain.
+Done 2026-11-23: AssignableTo keeps the decaying side's kind down the chain (decayKind) and makes ensureMembers of
+each side once, before the loop -- the review of the first version found ensureMembers still walking the chain at
+each step while an instance was postponed (binate `c02caeb8d`).  A 20,000-link chain assigned both ways: 5.6-6.2 s
+from 9.2-9.6 s.  TestDeepNamedDecay (200,000 links, with an instance postponed).  The cast retype's per-level
+readonly checks: closed as bounded, the user's choice (2026-11-23) -- the parser's nesting limit (512) bounds a
+retype's depth, a cast and an unsafe_cast 500 deep compile in 0.17 s for the whole program, and making the checks
+linear would mean per-level readonly rules, which see below a named type where the whole-type check stops.
+
 ### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — DONE (binate `60e0b1d95`, 2026-11-23, work-6; user: "Per row, all backends (Recommended)", landed on "1. yes. 2. yes, fix that next") (MAJOR; valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
 
 - Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Cell[T any] struct { v T }`, `func (b
