@@ -534,6 +534,13 @@ IR-gen cannot map is an internal error, never `int`.
    methods.  Carried on every instance, a growing version (`Wrap() Box[Opt[V]]`) once defined made the type an
    infinite family for the rest of the session, even after Wrap was redefined back (check's
    TestExpandVerdictFollowsRedefinition: "generic instantiation Box[int] names infinitely many instantiations").
+   6b-5b DONE (binate `564d1aa1a`, 2026-11-22; user: "wait 12 minutes, then land"): as designed, "Only where
+   selected" -- a selection of a superseded version on an instance formed since copies it there and checks the
+   instance again (carrySupersededMethod; an instance's own bodies' selections by a further pass of
+   checkTypeInstance), and IR-gen emits it only where checked (hasInstanceCopy).  The new method is still emitted
+   at the redefinition for the existing instance types (EmitSupersedingMethod), so its load check runs there.
+   Its review found a method expression on an instance (`Cur[X].Get`) named by its spelling -- the new method
+   called with the old arguments -- fixed in it: named by the checker's record, as calls and method values are.
    6b-5a DONE (binate `a9ed7ebeb`, 2026-11-22; user: "wait 4 minutes, then land, then continue"): as designed
    for non-generic types, except that the REPL still lowers the redefinition as a shadowing group
    (shadowingFuncs / LowerFuncsShadow) after renaming the superseded method's function, thunk and wrappers (only
