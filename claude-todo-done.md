@@ -1,3 +1,25 @@
+### bnfmt moved a comment before the `)` of a composite literal's parentheses in a condition to after the `)` — DONE (binate `7e855c2c1`, 2026-11-22, temp-4; user: "Cache the condition state (Recommended)", landed on "wait 8 minutes, then go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
+
+In a control clause's condition bnfmt keeps the parentheses around a composite literal of a type name, but a block
+comment on one line before their `)` printed after it: `if (T{1} /* c */) == d {` printed `if (T{1}) /* c */ ==
+d {`, and `switch (T{1} /* c */).(type) {` printed `switch (T{1}) /* c */.(type) {`.  A condition, and a postfix
+head or an operator chain's operand in it, is first rendered alone to claim the gap after it (claimAfterExpr), and
+that rendering was not made as a condition's, so it wrote no parentheses and the gap after it took the comment; the
+render cache's key did not record the condition state.
+- Fix (print_rendermemo.bn, print_header.bn, print_inlineclose.bn; print_chain.bn, print_expr.bn, print_slice.bn,
+  print_switch.bn, print_stmtgaps.bn, print_type.bn): the key records it (renderKey.exposed), renderExposedAt
+  renders as a condition prints, and claimAfterExpr and claimAfterParens render in the condition's state.  A chain's
+  operand in a condition comes from the cache (operandAt) instead of being rendered afresh, which, in the claim
+  rendering, printed a chain in another's left operand again for each print of the chain around it.
+- Tests: print_inlineclose_test.bn TestCloserCommentsOfKeptParensInConditions; print_rendermemo_test.bn
+  TestRenderCacheKeepsConditionsApart and TestConditionChainsPrintFew (a chain of the nine precedences in an `if`
+  prints 1,520 chains with a fresh rendering of each operand, against 99 in a statement).
+- Validation: of 1,468 such comments in 300 generated files, every one stays in place (main: 92), with no file
+  unstable or wider; 26,085 corpus files, the tree's included, format as on main.  Real files take the same time;
+  a 518-line commented chain in an `if` takes 0.20 s against main's 0.69 s.
+- The review found that a C-style `for` header can run past the cap by its post statement and ` {` (pre-existing;
+  its own entry in claude-todo.md).
+
 ### Checking a chain of named types over named types: checkDeclsEmbedding's opaque-value check -- DONE (binate `2fda0225b`, 2026-11-22, work-1; the rest of the entry stays open)
 
 isOpaqueValueTypeKept keeps, while a batch's declarations are checked in the package's own view and no type

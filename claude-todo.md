@@ -2996,22 +2996,12 @@ recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted
 ### bnfmt moves a comment after a `...` or in parentheses around an expression out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
 `664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of
-parentheses bnfmt keeps, except around a composite literal in a condition, in binate `1027f850c`)
+parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`)
 
-Three gaps still have no printer of their own, so a comment in one is printed by a neighbouring gap, or after the
+Two gaps still have no printer of their own, so a comment in one is printed by a neighbouring gap, or after the
 statement, out of its place.  Each can claim its comments by position now that a comment records the tokens around
 it (token.Comment After / Before), or by positions the parser records where it drops a gap's end, as a var or const
 spec's ast.Header does (Binder, Assign):
-- right before a `)` the source keeps around a composite literal in a condition (an `if`'s or a `for`'s, or a
-  switch's head, where bnfmt keeps those parentheses): `if (T{1} /* c */) == d {` prints `if (T{1}) /* c */ ==
-  d {`, and `switch (T{1} /* c */).(type) {` prints `switch (T{1}) /* c */.(type) {`, as do a selector and a type
-  assertion on one (`if (T{1} /* c */).f == 1 {` prints `if (T{1}) /* c */.f == 1 {`).  The `)` of every other pair
-  bnfmt keeps prints them in place (parenCloserGap, print_inlineclose.bn), but a condition or a switch's head is
-  first rendered alone, to claim the gap after it (claimAfterExpr, print_header.bn), and not as a condition, so the
-  composite's parentheses are not written there and that gap takes the comment; the render cache's key (renderKey,
-  print_rendermemo.bn) does not hold whether a render is a condition's.  Fix (user, 2026-11-22: "Cache the
-  condition state (Recommended)"): add that state to the key, and render a condition, and the heads in one, in that
-  state before claiming the gap after it;
 - right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
   only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
   2026-11-08 working on the declarations' gaps);
