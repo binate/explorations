@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### asm x64: a prefix written before an x87 waiting form goes before its FWAIT — `fs fstcw` stores through DS, `data16 fstenv` writes the 28-byte environment — 🔴 OPEN, unclaimed (MAJOR: silent wrong code; found 2026-11-22, work-2, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
+### asm x64: a prefix written before an x87 waiting form goes before its FWAIT — `fs fstcw` stores through DS, `data16 fstenv` writes the 28-byte environment — 🟡 IN PROGRESS (claimed 2026-11-22, work-2) (MAJOR: silent wrong code; found 2026-11-22, work-2, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
 A segment name or `data16` written as an instruction before a waiting x87 form (fstcw, fstsw, fstenv, fsave,
 fclex, finit) is emitted where it is written, before the form's FWAIT (9B), as clang emits it: `fs fstcw word ptr
 [rax]` is 64 9b d9 38 and `data16 fstenv [rax]` 66 9b d9 30.  The prefix then belongs to the FWAIT, so fnstcw
@@ -19,7 +19,7 @@ waiting x87 form after it on its line, emit the form's FWAIT before the prefix a
 x64X87Instruction and the zero-operand forms skipping their FWAIT).  Tests: the two lines above, `fs data16 fstenv
 [rax]`, `gs finit`, against GNU as.
 
-### asm x64: `data16` before an instruction with an operand-size immediate emits an imm32 the CPU reads as an imm16 — 🔴 OPEN, NEEDS DECISION (MAJOR: silent wrong code in bnas, clang and GNU as alike; found 2026-11-22, work-2, the review of the rex64 change)
+### asm x64: `data16` before an instruction with an operand-size immediate emits an imm32 the CPU reads as an imm16 — 🟡 IN PROGRESS (claimed 2026-11-22, work-2; DECIDED 2026-11-22: reject, and add GNU as's `pushw imm`) (MAJOR: silent wrong code in bnas, clang and GNU as alike; found 2026-11-22, work-2, the review of the rex64 change)
 `data16 mov eax, 1` is 66 b8 01 00 00 00 in bnas, clang and GNU as; with the 66 the CPU reads `mov ax, 1` (66 b8
 01 00) and then 00 00 as `add [rax], al`.  The same holds for `data16 add eax, 0x12345678` (66 05 and an imm32),
 `data16 test eax, 1`, `data16 imul eax, ebx, 1000`, `data16 mov dword ptr [rax], 1` and `data16 push 0x1234` (66
