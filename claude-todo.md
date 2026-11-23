@@ -600,13 +600,13 @@ with native/common (callArgBase, isIndirectCallOp, frameAdd, AppendInt) exported
 duplicated; common.bni loses about 75 lines (the RegMap methods such as CallResultSlot stay); codegen, the VM and
 the three backends import the new package, and CLAUDE.md's BUILDER-surface list gains it.
 
-### Native PlanFrame's region sharing runs a liveness pass of its own — about 2% of native compile time — 🟡 IN PROGRESS (claimed 2026-11-22, work-3; user: "go ahead and do the follow-ups")
+### The lazy-spill cursor recomputes the GP allocator's liveness -- a second full GP pass per function — 🔴 OPEN (found 2026-11-22, work-3, review of binate `61ab9d237`)
 
-regionSpans (native/common/common_region_share.bn, binate `02d1e098a`) computes the liveness of aggregate values
-(REGCLASS_AGG) and builds their intervals for every function with two or more data regions, after the register
-allocator has already run its own GP and FP liveness passes.  Native compile medians came out 2.2% (irgen) and
-2.4% (check) slower than the parent's, against a noise floor of 0.8% (minimums equal).  Profile first; then fold
-the aggregate class into a pass the allocator already makes, or make the pass cheaper.
+Each native backend's emit_func builds a LiveCursor (RegMap.NewLiveCursor) after PlanFrame with the same function,
+the same fusable set (UnionFusable(rm.FusableGep, rm.FusableFieldGep)), class and word size as AllocateRegisters'
+liveness, so it computes the same LivenessInfo again: about 0.9% of a native compile's main-thread samples (profile
+of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
+pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
 ### Native frames: a call's copies of its by-reference struct arguments are never shared — 🟡 IN PROGRESS (claimed 2026-11-22, work-3, measuring the parser's remaining frame bytes first; user: "go ahead and do the follow-ups, and then maybe consider doing the open thing left in the todo") (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3)
 

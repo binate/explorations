@@ -1,3 +1,14 @@
+### Native PlanFrame's region sharing ran a liveness pass of its own — about 2% of native compile time — DONE (binate `61ab9d237`, 2026-11-22, work-3; user: "go ahead and do the follow-ups"; "Share CFG, hulls only")
+
+Profiled first: the aggregate pass's liveness and BuildIntervals were most of it, and every liveness pass (GP, FP,
+aggregate, the lazy-spill cursor) and the alloca sharing rebuilt the same CFG data.  A function's LiveCFG
+(successors, reachability, RPO, positions) is now built once and cached on its RegMap (liveCFGOf, which panics if a
+block's length changed between passes); the aggregate pass keeps only hulls (buildHulls, the same block scans into
+a hull-mode rangeLog).  Objects of 7 packages x 3 targets x -O0 / -O2 byte-identical; the allocators, PlanFrame and
+the cursor take 15.8% of irgen's native compile samples, against 17.2% after step 3 and 16.5% before it.  Splitting
+native/common.bni first was considered and filed (the in-place frame analyses entry); the user chose to add to the
+file instead ("Add the 5 lines"; it went from 963 to 971 lines).
+
 ### Checking a chain of named types over named types takes time superlinear in its length — DONE (binate `18aa10c40` with the earlier steps, 2026-11-22, work-1)
 
 The pointer rule, the fitting check, the prefill (binate `3464db8b4`) and checkDeclsEmbedding's opaque-value check
