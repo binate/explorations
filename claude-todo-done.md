@@ -1,3 +1,21 @@
+### REPL: a constraint call on a type whose method a later input superseded called the new method, not the one its impl provides — DONE (binate `d360164ab`, 2026-11-22, work-6; user: "yes, let's do that stacked on your current commit", landed on "wait 4 minutes, then land, then continue")
+
+At the prompt, after `impl T : I` (I has `M() int`), a redefinition `func (t T) M(k int) int` made `h[T](t)` for
+`func h[X I](x X) int { return x.M() }` fail ("wrong number of arguments (in h[T], ...)"), while an interface
+value of `t` still called the old M through the impl's vtable: a call through a type parameter's constraint,
+checked in an instance, looked the type argument's method up by name.
+- Fix: such a call calls the method bound by the impl that makes the type argument satisfy the constraint -- the
+  version live at the impl's generation (Impl.Gen; with the method versions of binate `a9ed7ebeb`, a superseded
+  method stays a member under its hidden name, which IR-gen names the callee by).  The selector records which
+  type parameter its receiver is (ast.Expr ConstraintParamID, in place of ViaConstraint), and an instance's check
+  resolves that parameter's constraint for its arguments (instanceConstraint, now for a generic type's too) and
+  finds the impl (constraintImpl).  A method call's errors name the method as the call spells it.
+- Tests: check TestReplConstraintCallMethodVersion, TestReplConstraintCallDependentLength and
+  TestReplConstraintCallErrorNamesMethod; e2e/repl.sh shadow-method-constraint-call-calls-impl-method.
+- Validation: emitted IR unchanged for cmd/bnc and the 40 conformance programs with constrained generics.
+  Reviewed (no regression; its two minor findings -- a constraint taking a length from a type parameter, and the
+  hidden name in an error -- fixed in it).
+
 ### Checking a chain of named types over named types: the pointer rule, the fitting check and the prefill -- DONE (binate `3464db8b4`, 2026-11-22, work-1; the rest of the entry stays open)
 
 pointeeBase keeps, while a batch's declarations are checked and no type changes (pointeeBases), the type each

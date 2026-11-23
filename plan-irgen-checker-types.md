@@ -529,6 +529,17 @@ IR-gen cannot map is an internal error, never `int`.
    every instance"); an existing instance's copy is renamed in place instead of dropped; IR-gen keeps the superseded
    declaration stashed and emits its instances under the hidden name, renaming the instances and wrappers already
    emitted; ShadowReplGenericMethod, EmitShadowedMethod and Vm.UnbindFunc go; e2e s1, s2.
+   6b-5a DONE (binate `a9ed7ebeb`, 2026-11-22; user: "wait 4 minutes, then land, then continue"): as designed
+   for non-generic types, except that the REPL still lowers the redefinition as a shadowing group
+   (shadowingFuncs / LowerFuncsShadow) after renaming the superseded method's function, thunk and wrappers (only
+   their unbinding goes).  A superseded member is neither selectable nor bound by its hidden name, and selecting a
+   version notes no use (it never waits on a parked redefinition).  Its review found that a call through a
+   constraint, looking up by name, was rejected in an instance made after a supersession while the impl still
+   bound the old method -- the todo MAJOR, fixed in the same landing (binate `d360164ab`; user: "yes, let's do
+   that stacked on your current commit"): such a call calls the method bound by the impl that makes the type
+   argument satisfy the constraint, the version of the impl's generation (Impl.Gen; the selector records its
+   receiver's type parameter, ast.Expr ConstraintParamID, in place of ViaConstraint).  So "a call through a
+   constraint stays live (it looks up by name)" above now reads: it calls what the impl binds, as "Live" decided.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
