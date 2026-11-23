@@ -540,6 +540,10 @@ IR-gen cannot map is an internal error, never `int`.
    argument satisfy the constraint, the version of the impl's generation (Impl.Gen; the selector records its
    receiver's type parameter, ast.Expr ConstraintParamID, in place of ViaConstraint).  So "a call through a
    constraint stays live (it looks up by name)" above now reads: it calls what the impl binds, as "Live" decided.
+   The import-name MAJOR C3's review left is fixed (binate `c2401ceb2`, 2026-11-22; user: "yes"): an import's name
+   is versioned as a variable's is (SYM_PKG in the session's history; an import of the package the name already
+   names leaves it bound), the main file's imports are bindings of generation 1, and the REPL warns when an
+   import's name is taken.  IR-gen needed nothing: it names a qualified reference from the checker's record.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.

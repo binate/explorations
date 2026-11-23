@@ -1,3 +1,25 @@
+### REPL: an import that rebinds a package name changed what an earlier generic calls — DONE (binate `c2401ceb2`, 2026-11-22, work-6; user: "work on that after 2. (and landing)", landed on "yes")
+
+With `import s "pkg/pa"`, a generic using `s.F()` / `s.T`, then `import s "pkg/pb"` (or `var strings int` after
+`import "pkg/std/strings"`), an instance of the generic made after the rebinding used pb's F and T (silent wrong
+output) or failed ("undefined: strings"): package bindings were not versioned, so the session's binding was
+overwritten in place.
+- Fix (check_repl_versions.bn, checker_persistent.bn, repl/decl_var.bn): an import's name is versioned as a
+  variable's is (isVersionedKind takes SYM_PKG), so a generic's view as of its declaration finds the package it
+  named; RegisterReplImport leaves the binding of an import of the same package as it is (a binding of its own
+  would hide the generation an earlier view finds it by); the main file's imports are bindings of generation 1
+  (the session is marked before they are registered -- else one restored when an undone input that took its name
+  is rolled back took that input's generation: the review's MAJOR, fixed in the same commit); the REPL renames
+  nothing for a shadowed import and warns ("warning: import s shadowed; existing references retain the old
+  package").  IR-gen names a qualified reference from the checker's record, by package path, so it needed nothing.
+- Tests: check TestReplVersionsImportNames and TestReplVersionsMainFileImport; e2e/repl.sh
+  shadow-import-generic-keeps-declared-package and shadow-main-file-import-after-failed-input (three existing
+  cases now expect the warning).
+- Reviewed: probes of constants (in array lengths, switches), package variables, method and function values,
+  composite literals, aliases, generic types and aliases, constraints, impls and expose forwarders through a
+  rebound name all correct.  Its pre-existing finding is filed as the MINOR "an import silently replaces a
+  session type of the same name"; an import taking a function's name still prints no warning (as before).
+
 ### REPL: a constraint call on a type whose method a later input superseded called the new method, not the one its impl provides — DONE (binate `d360164ab`, 2026-11-22, work-6; user: "yes, let's do that stacked on your current commit", landed on "wait 4 minutes, then land, then continue")
 
 At the prompt, after `impl T : I` (I has `M() int`), a redefinition `func (t T) M(k int) int` made `h[T](t)` for
