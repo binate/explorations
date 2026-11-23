@@ -2923,6 +2923,28 @@ each declaration is reported too deep after the same walks (4,000 links 13 s).  
 kept alias anywhere in a type, which needs the kept answers per view and frame the opaque walks take (pointsStep,
 rulesSigsStep).
 
+### An impl's vtable has ~2^h slots on a ladder of diamonds: each ancestor's full vtable is laid out inside it — 🔴 NEEDS DECISION 🟢 LOW (compile time and code size; found 2026-11-23, work-1, measuring the interface-ancestor walks)
+
+An impl's vtable is `[any-block][P1 full vtable][P2 full vtable][own]` (ifaceFullMethods, irdata.BuildImplVtable,
+codegen emitImplVtables), each parent's full vtable laid out whole inside it, so that an upcast to an ancestor is a
+constant offset into the source's vtable (iriface.IfaceParentSlotOffset, codegen emit_iface_upcast.bn, the VM
+alike).  An ancestor reached by two paths is laid out once per path: on a ladder of diamonds (`I_k : A_k, B_k`, A_k
+and B_k over I_k+1) an impl of I0 has ~2^h slots.  `impl *T : I0` at height 10 is 6 MB of LLVM IR; height 12 takes
+67 s to compile, nearly all in emitImplVtables; height 14 runs past 300 s.  (The checker's own walks of such a ladder
+are exponential too -- "The walks over an interface's ancestors ..." below.)  The layout is implementation-defined
+(spec Annex B is informative), but compiled code and the VM share it.  Decision needed: keep it (a ladder of
+diamonds is rare in practice), or lay a shared ancestor out once, which changes the upcast from an offset into the
+source's vtable to something else (an ancestor's vtable of its own per impl, found at the upcast; or per-view
+offset tables).
+
+### A method missing on an interface value is reported as "cannot access field on this type" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-23, work-1, testing the interface-ancestor walks; pre-existing)
+
+`i.nope()` with `i *I` (no method nope on I or its ancestors) reports `cannot access field on this type`, while
+`t.nope()` on a `*T` struct reports `undefined: nope`: the member read's miss path (check_expr_access.bn, the last
+`addCheckError` of the selector check) sends a struct or a named type with methods to errNoMember, and an interface
+value falls through to the field-access message.  Fix: report an interface value's missing method as errNoMember
+does.  Repro: `interface I { m() int }` and `func f(i *I) int { return i.nope() }`.
+
 ### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
 
 None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
