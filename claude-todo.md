@@ -2912,12 +2912,15 @@ graph has no long path, or accept it as LLVM's limit.
 
 ### Checking a chain of named types over named types takes time superlinear in its length — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-10, work-1, deep-nesting dependencies-first stage 2; pre-existing)
 
-A chain `type N0 N1`, ..., `type Nn int8` of n declarations: checkDeclsEmbedding's requireSizedType runs the opaque
-rules for each declaration (opaqueRulesKept -> pointeeEmbedsOpaque -> stepBringPointeeKept), and pointeeBase peels the
-rest of the chain for each one, entering every name in a nameVisits table -- O(n^2) table operations, most of the time
-in the table's name equality (sampled).  A unit test of 6,000 declarations took 212 s in check's test binary; bnc
-took 207 s at 20,000 (done/plan-deep-nesting.md).  Fix: keep pointeeBase's answer per named type across the batch, as the
-pointer rule's answers are kept (opaqueRulesKept), or peel a chain of names once.
+The pointer rule, the fitting check and the prefill now take a chain a link at a time (binate `3464db8b4`,
+claude-todo-done.md): 20,000 links `type N0 N1`, ..., `type Nn int8` take 24 s (from 224 s), a 10,000-link alias
+chain ~9 s (from 13-14 s).  Still walking the rest of the chain for each declaration (sampled with that commit):
+- checkDeclsEmbedding's `isOpaqueValueType(c, dt)` (check_value_embedding.bn): isOpaqueType's peelFieldAccessBase
+  and isCrossPkgOpaqueExport's walk (opaqueExportHiddenHere at each named type -- view-dependent) -- ~50% of the 24 s;
+- on an alias chain, the checker's resolvePendingAliasNamed while collecting (~18% of an alias chain's time) and
+  IR-gen's requireConcreteRecord -> isAbstractType for each alias registration (~20%);
+- the scans quadratic in a package's declaration count ("Checking is quadratic in a package's number of
+  declarations": checkDuplicateDecls, preRegisterTypeNames / Scope.Define, checkImportDeclCollisions, the loader).
 
 ### The container retypes and AssignableTo's decay through named types are quadratic in depth — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-08, work-1, deep-nesting check part 3; pre-existing)
 

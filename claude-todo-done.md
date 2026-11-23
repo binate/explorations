@@ -1,3 +1,13 @@
+### Checking a chain of named types over named types: the pointer rule, the fitting check and the prefill -- DONE (binate `3464db8b4`, 2026-11-22, work-1; the rest of the entry stays open)
+
+pointeeBase keeps, while a batch's declarations are checked and no type changes (pointeeBases), the type each
+named type's or alias's chain ends at when that is no pointer, and stepBringPointeeKept skips building the
+postponed base of a type kept so; fitsTarget keeps the named types and aliases found to fit (fittingTypes);
+fillNamedPlaceholder takes a placeholder it fills from prefillTarget as a scalar chain without walking it.  5,000
+links 1.0 s from 17.5-18 s, 20,000 links 24 s from 224 s, a 10,000-link alias chain 8.8-9.9 s from 13-14 s; the
+corpus's IR and diagnostics unchanged.  Reviewed (no defects; its hardening, fetching the bases again after a
+build, folded in).
+
 ### bnfmt moved a comment before the `)` of parentheses it keeps to after the `)` — DONE (binate `1027f850c`, 2026-11-22, temp-4; user: "yes", landed on "wait 8 minutes, then go ahead") (LOW; part of the comment-gap entry in claude-todo.md)
 
 A block comment right before the `)` of parentheses the source puts around an expression, where bnfmt keeps them,
