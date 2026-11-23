@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### parser: `a, b++` keeps only `a++` (bnc runs it, bnfmt deletes the `b`), and `a, b += 1` crashes IR-gen — 🔴 OPEN (MAJOR: the compiler accepts invalid code with part of it dropped, and crashes on the compound form; found 2026-11-23, temp-4, the review of the for-header comma fix; pre-existing, bnc-0.0.17 and main alike)
+### parser: `a, b++` keeps only `a++` (bnc runs it, bnfmt deletes the `b`), and `a, b += 1` crashes IR-gen — 🟡 IN PROGRESS (claimed 2026-11-23, temp-4) (MAJOR: the compiler accepts invalid code with part of it dropped, and crashes on the compound form; found 2026-11-23, temp-4, the review of the for-header comma fix; pre-existing, bnc-0.0.17 and main alike)
 
 finishSimpleStmtInner (pkg/binate/parser/parse_stmt.bn) builds a `++` / `--` statement from the first expression of
 the list before it and drops the rest, and keeps the whole list before a compound operator (`+=` …), where the
