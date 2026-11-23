@@ -1289,6 +1289,27 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
+### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — 🔴 OPEN MAJOR (valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
+
+- Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Cell[T any] struct { v T }`, `func (b
+  *Cell[T]) Size() int { return 1 }` and `impl *Cell[T] : Sizer`, a prompt redefinition of Size with another
+  signature (`func (b *Cell[T]) Size() int8 { ... }`) is rejected when an instance of Cell exists ("type Cell[int8]
+  does not implement Sizer"), and once accepted every instance formed later fails its impl check ("type Cell[int]
+  does not implement Sizer (method `Size` has wrong signature) (in the impl for Cell[int], ...)").  An impl of a
+  type that is not generic keeps binding the method of its generation, as a constraint call does (binate
+  `d360164ab`).
+- Cause: checkInstanceImpls resolves a parameterized impl for each instance in its declaring scope as it is now
+  (collectGenericImplRecv keeps c.Scope, not viewedScope), and finds the covering methods live (lookupImplMethod,
+  named.LookupMethod).
+- Fix (proposed): check and bind a parameterized impl, per instance, as of its generation (Impl.Gen): its interface
+  list resolved in a view of the session (viewedScope), each covering method the version of its generation
+  (methodVersionAt, carried onto the instance where selected), and IR-gen's vtable for the instance binding that
+  version by the checker's record.  Test: an e2e/repl.sh case with a main-file parameterized impl.
+- With plan-irgen-checker-types 6b-6 (the instance-body use recording deleted), a declaration naming an instance no
+  longer waits for a parked incompatible redefinition of a covered method: the redefinition, not the declaration, is
+  then the one that fails (`func (b *Cell[T]) Size() int8 { return cast(int8, Q(0)) }`, `func f() int { var b
+  Cell[bool]; return 7 }`, `func Q(n int) int { return 0 }`: f resolves, Size stays parked, "it does not check").
+
 ### REPL: an import silently replaces a session type of the same name — 🔴 OPEN MINOR (valid code rejected later, no diagnostic at the import; found 2026-11-22, work-6, review of the import-name versioning; pre-existing: a bni from main as of binate `d360164ab`)
 
 - Symptom: at the prompt `type qb struct { v int }`, `func g[X any](x X) int { var q qb; q.v = 3; return q.v }`,
