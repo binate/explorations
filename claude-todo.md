@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — 🔴 OPEN (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
+### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — 🟡 IN PROGRESS (claimed 2026-11-23, temp-4) (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
 
 parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
 consumed the comma, and when the next token is not an IDENT it falls through to the single-ident path, which
