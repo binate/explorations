@@ -1256,7 +1256,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: an import that rebinds a package name changes what an earlier generic calls — 🔴 OPEN MAJOR (silent wrong output; found 2026-11-21, work-6, review of plan-irgen-checker-types 6b-3b's views; pre-existing: a bni from main as of binate `26767b035` and one with the views, not yet landed, alike)
+### REPL: an import that rebinds a package name changes what an earlier generic calls — 🟡 IN PROGRESS (claimed 2026-11-22, work-6; MAJOR; silent wrong output; found 2026-11-21, work-6, review of plan-irgen-checker-types 6b-3b's views; pre-existing: a bni from main as of binate `26767b035` and one with the views, not yet landed, alike)
 
 - Symptom: with packages pkg/pa and pkg/pb each declaring `func F() int` (returning 1 and 2), at the prompt
   `import s "pkg/pa"`, `func g[T any](v T) int { return s.F() }`, `func k() int { return s.F() }` and
