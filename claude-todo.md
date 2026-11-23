@@ -1301,7 +1301,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
   `_func_handle(pkg.F)` and `__c_entry(pkg.F)` (cEntryFuncSym) look up the same way.
 - **Fix:** look a qualified name up in the package's own scope only (`LookupLocal` on the package scope).
 
-### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — 🔴 OPEN MAJOR (valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
+### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — 🟡 IN PROGRESS (claimed 2026-11-23, work-6; user: "Land 6b-6 now, fix next"; MAJOR; valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
 
 - Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Cell[T any] struct { v T }`, `func (b
   *Cell[T]) Size() int { return 1 }` and `impl *Cell[T] : Sizer`, a prompt redefinition of Size with another
