@@ -1,3 +1,33 @@
+### REPL: a parameterized impl is checked per instance against the methods and names as they are now, not as of its generation — DONE (binate `60e0b1d95`, 2026-11-23, work-6; user: "Per row, all backends (Recommended)", landed on "1. yes. 2. yes, fix that next") (MAJOR; valid input rejected; found 2026-11-22, work-6, review of plan-irgen-checker-types 6b-6; pre-existing: a bni from main as of binate `564d1aa1a`)
+
+- Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Cell[T any] struct { v T }`, `func (b
+  *Cell[T]) Size() int { return 1 }` and `impl *Cell[T] : Sizer`, a prompt redefinition of Size with another
+  signature (`func (b *Cell[T]) Size() int8 { ... }`) is rejected when an instance of Cell exists ("type Cell[int8]
+  does not implement Sizer"), and once accepted every instance formed later fails its impl check ("type Cell[int]
+  does not implement Sizer (method `Size` has wrong signature) (in the impl for Cell[int], ...)").  An impl of a
+  type that is not generic keeps binding the method of its generation, as a constraint call does (binate
+  `d360164ab`).
+- Cause: checkInstanceImpls resolves a parameterized impl for each instance in its declaring scope as it is now
+  (collectGenericImplRecv keeps c.Scope, not viewedScope), and finds the covering methods live (lookupImplMethod,
+  named.LookupMethod).
+- With plan-irgen-checker-types 6b-6 (the instance-body use recording deleted), a declaration naming an instance no
+  longer waits for a parked incompatible redefinition of a covered method: the redefinition, not the declaration, is
+  then the one that fails (`func (b *Cell[T]) Size() int8 { return cast(int8, Q(0)) }`, `func f() int { var b
+  Cell[bool]; return 7 }`, `func Q(n int) int { return 0 }`: f resolves, Size stays parked, "it does not check").
+- Fix: a parameterized impl is checked and bound, per instance, as of its generation (Impl.Gen): its interface list
+  resolves in a view of the session (viewedScope), each covering method is the version of its generation
+  (lookupImplMethod by methodVersionAt, carried onto the instance where selected), and checkHeldMethods runs again
+  after checkInstanceImpls.  Each impl row records the interface methods, its own and inherited, that it binds to a
+  hidden version (irdata.ImplInfo.BoundMethods / BoundTo, from Checker.ImplMethodName), and every backend -- the VM,
+  LLVM and the three native ones -- names a vtable slot through iriface.ImplSlotFuncName.  The REPL lowers the impl
+  rows a function declaration mints with it (lowerReplFuncIn): a VM vtable resolves its slots by name when built.
+  The parked redefinition above now resolves, and f still calls the impl's method.  Tests: e2e/repl.sh
+  shadow-generic-method-parameterized-impl-{keeps-its-method,parked-redefinition,inherited-methods}; check
+  TestReplParameterizedImplKeepsMethodOfItsGeneration; iriface TestImplSlotFuncName.
+- Its review found that a child interface's vtable did not bind the parents' methods (fixed in it), and the
+  pre-existing MAJOR "an interface call on a generic named non-struct type's value-receiver method, boxed at the
+  prompt, passes the pointer" (filed).
+
 ### REPL: an incompatible redefinition of a generic method that a sibling still calls in the old shape, and adding a method to a generic type checks its existing instances again against names redefined since — DONE (binate `25608c022`, `564d1aa1a`, `e23810d7f`, 2026-11-21 to 2026-11-23, work-6; plan-irgen-checker-types stage 6b, decision 7; user: "that sounds fine. let's implement decision 7", landed on "wait 8 minutes, then go ahead", "wait 12 minutes, then land" and "Land 6b-6 now, fix next (Recommended)")
 
 Two REPL entries, both settled by decision 7 (a generic's names, and the methods it selects, mean what they meant

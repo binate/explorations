@@ -548,7 +548,9 @@ IR-gen cannot map is an internal error, never `int`.
    park is gone.  Its review found that a main-file parameterized impl is checked per instance against the methods
    as they are now, not as of its generation (a pre-existing MAJOR, filed); with the recording gone a parked
    incompatible redefinition of a method such an impl covers, not a declaration naming an instance, is what then
-   fails.  The user chose to land 6b-6 first and fix that next.  Stage 6b is done but for that.
+   fails.  The user chose to land 6b-6 first and fix that next: binate `60e0b1d95` (2026-11-23; user: "Per row,
+   all backends (Recommended)") checks and binds such an impl, per instance, as of its generation, each impl row
+   naming the hidden versions it binds for every backend's vtable.  Stage 6b is done.
    6b-5a DONE (binate `a9ed7ebeb`, 2026-11-22; user: "wait 4 minutes, then land, then continue"): as designed
    for non-generic types, except that the REPL still lowers the redefinition as a shadowing group
    (shadowingFuncs / LowerFuncsShadow) after renaming the superseded method's function, thunk and wrappers (only
