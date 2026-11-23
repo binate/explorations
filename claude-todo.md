@@ -7,6 +7,22 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### parser: a C-style loop header's `x, (y) = …` or `x, *p = …` loses its comma (`x(y)`, `x * p`), and `x, y.f = …` does not parse — 🔴 OPEN (MAJOR: bnfmt rewrites valid source into a different program, and the compiler rejects it; found 2026-11-22, temp-4, the review of the kept-`(` comment change; pre-existing, bnc-0.0.17 and main alike)
+
+parseFor (pkg/binate/parser/parse_for.bn) looks ahead for `for k, v in`: after a first IDENT and a `,` it has
+consumed the comma, and when the next token is not an IDENT it falls through to the single-ident path, which
+continues `x` as an operand.  So `for x, (y) = 1, 2; x < 0; {` parses as `for x(y) = 1, 2` (bnc: "cannot call
+non-function", "assignment count mismatch"), and `for x, *p = 1, 2; ; {` as `for x * p = 1, 2`; bnfmt prints those
+trees without the comma, so `bnfmt -w` rewrites the file.  When the token is an IDENT not followed by `in`, the
+list is rebuilt from the two bare idents, so a postfix after the second is lost: `for x, y.f = 1, 2; ; {` and `for
+x, y[0] = 1, 2; ; {` are parse errors.  Outside a loop header `x, (y) = 1, 2` parses right (bnfmt prints `x, y =
+1, 2`).  In each form found the misparse loses an assignment target, so the checker rejects it; no program found
+compiles to other code.
+- Fix: after the comma, unless the next tokens are `IDENT in`, parse the rest as an expression list -- the first
+  ident, then a full expression (the second ident continued with continuePostfix / continueBinaryExpr, as the
+  single-ident path does, or parseExpr) and any more after commas -- then finishSimpleStmt.
+- Tests: parse_for_test.bn cases for `(y)`, `*p`, `y.f` and `y[0]` after the comma; a bnfmt golden test.
+
 ### asm x64: a prefix written before an x87 waiting form goes before its FWAIT — `fs fstcw` stores through DS, `data16 fstenv` writes the 28-byte environment — 🟡 IN PROGRESS (claimed 2026-11-22, work-2) (MAJOR: silent wrong code; found 2026-11-22, work-2, the review of the rex64 change; since stage 2 of plan-asm-x64-isa.md, binate `7ac5508c0`)
 A segment name or `data16` written as an instruction before a waiting x87 form (fstcw, fstsw, fstenv, fsave,
 fclex, finit) is emitted where it is written, before the form's FWAIT (9B), as clang emits it: `fs fstcw word ptr
