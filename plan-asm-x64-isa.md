@@ -183,6 +183,12 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   of prefix used twice"); clang emits 48 where it is written, ignored before another REX or a mandatory prefix — a
   commit of its own after 3b ("As GNU as, own commit (Recommended)").  `emms` moves from 3d into 3b, with the MMX
   set ("Into 3b (Recommended)"); femms stays with 3DNow! in 3d.
+- data16 before an operand-size immediate (user, 2026-11-22: "Reject, add pushw imm (Recommended)"): an error
+  where data16 narrows an instruction's immediate (MOV's B8+r and C7, the ALU group's 05 / 81, test's A9 / F7,
+  imul's 69, push's 68 with an imm32), as for rex64 — bnas, clang and GNU as all emit the imm32, which the CPU
+  reads as an imm16 and then the rest as another instruction (GNU as alone narrows push's).  The 16-bit forms are
+  written with a 16-bit operand (`mov ax, 1`); for push, GNU as's `pushw imm` / `push word ptr imm` (66 68 iw) is
+  added, which bnas lacked (clang drops the size there: `push word ptr 0x1234` 68 imm32).
 - Far indirect jmp / call (user, 2026-11-14: "By operand size (Recommended)"): FF /5 / FF /3 encoded as the
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
