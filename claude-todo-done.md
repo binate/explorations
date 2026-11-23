@@ -1,3 +1,27 @@
+### Preparing a layout during collection is quadratic in the length of the chain it reads — DONE (binate `531dc99f0`, 2026-11-23, work-1)
+
+A read while the declarations are collected of a chain of n struct declarations, each holding the next (`type X
+struct { a [sizeof(T0)]uint8 }` over T0 .. T(n-1)), prepares every declaration of the chain, and two steps for each
+are linear in the chain: checkTypeByValueCycle after each declaration's walk walks all it holds by value (~54% of
+the time, sampled), and batchTypeDeclOf finds a named type's declaration by scanning the batch's types by name
+(findDeclIn, ~15%).  With prepareLayout as a frame machine (binate `7fc716db6`; before it such a read of 20,000
+crashed in its recursion): 34 s for 20,000, against 5.4 s with no read (user CPU).  Fix:
+index the batch's type declarations by name, and check a by-value cycle only for the declarations on a cycle the
+walk met (a declaration reached by value while its walk is still going), as checkTypeDepths' valueAcyclic does
+after collection.  An importer's checks of a `.bni`'s chain of structs are quadratic the same way:
+checkBniValueEmbedding runs checkTypeByValueCycle for each declaration (two thirds of the 34 s of a 12,000-struct
+chain read by `sizeof`), so bni_by_name_walk_test.bn's struct chain is 3,000 long, short of where the old by-name
+recursion crashed (~10,500).
+Closed 2026-11-23 (binate `531dc99f0`): checkTypeByValueCycle's walk keeps the named types it finds holding no
+by-value cycle (c.ValueAcyclic, emptied by any type change but a fill), and later walks stop at them, so a chain
+is walked once whichever end its checks start from -- the prepare machine's per-declaration checks and
+checkBniValueEmbedding's alike.  A 20,000-struct chain read by `sizeof` while declarations are collected: 7.6-9.2
+s from 36-55 s (busy machine).  bni_by_name_walk_test.bn's struct chain is byNameLevels (6,000) now, 1.7 s.
+Both of the entry's examples are past the 1,024-level depth cap, so errors; a valid program reaches the same
+quadratic only in wide shapes (zero-size structs sharing a large by-value reach).  batchTypeDeclOf's by-name scan
+(batchTypeDecl -> findDeclIn) no longer shows in the profile; it goes with "Checking is quadratic in a package's
+number of declarations".
+
 ### Native PlanFrame's region sharing ran a liveness pass of its own — about 2% of native compile time — DONE (binate `61ab9d237`, 2026-11-22, work-3; user: "go ahead and do the follow-ups"; "Share CFG, hulls only")
 
 Profiled first: the aggregate pass's liveness and BuildIntervals were most of it, and every liveness pass (GP, FP,

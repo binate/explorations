@@ -2912,21 +2912,6 @@ place (since binate `27bdebd4b`).  The parser records these calls' `(` already
 (`ast.File.BuiltinOpeners`); printing the operands as an item list (a type item, then the value) would
 give them the value-argument builtins' wrapping and comments.
 
-### Preparing a layout during collection is quadratic in the length of the chain it reads — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-06, work-1, review of the prepareLayout frame machine; pre-existing)
-
-A read while the declarations are collected of a chain of n struct declarations, each holding the next (`type X
-struct { a [sizeof(T0)]uint8 }` over T0 .. T(n-1)), prepares every declaration of the chain, and two steps for each
-are linear in the chain: checkTypeByValueCycle after each declaration's walk walks all it holds by value (~54% of
-the time, sampled), and batchTypeDeclOf finds a named type's declaration by scanning the batch's types by name
-(findDeclIn, ~15%).  With prepareLayout as a frame machine (binate `7fc716db6`; before it such a read of 20,000
-crashed in its recursion): 34 s for 20,000, against 5.4 s with no read (user CPU).  Fix:
-index the batch's type declarations by name, and check a by-value cycle only for the declarations on a cycle the
-walk met (a declaration reached by value while its walk is still going), as checkTypeDepths' valueAcyclic does
-after collection.  An importer's checks of a `.bni`'s chain of structs are quadratic the same way:
-checkBniValueEmbedding runs checkTypeByValueCycle for each declaration (two thirds of the 34 s of a 12,000-struct
-chain read by `sizeof`), so bni_by_name_walk_test.bn's struct chain is 3,000 long, short of where the old by-name
-recursion crashed (~10,500).
-
 ### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
 With each declaration's type walks kept across a batch (the deep-nesting memoization stage, landed 2026-11-06), what
@@ -2942,8 +2927,10 @@ appended by copying and searched linearly, so its deep unit tests take ~450 s on
 variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  The batch methods stage (binate
 `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way, and the LLVM backend's addStructDef
 looks a struct definition up by name in a list (irutil.Streq), quadratic in a program's struct types: most of the 40
-to 110 s a 20,000-link method chain takes at `--emit-llvm`.  Fix: index what these scan by name (a Scope already
-indexes its names past a threshold), and build the lists with vec.
+to 110 s a 20,000-link method chain takes at `--emit-llvm`.  The batch's own lists are searched the same way
+(batchTypeDecl, batchTypeDeclOf, batchTypeDeclNamed: findDeclIn over b.Types; findDeclIn over b.Vars / b.Funcs in
+pushReadFrom).  Fix: index what these scan by name (a Scope already indexes its names past a threshold), and build
+the lists with vec.
 The same pattern, found 2026-11-15 (work-1, review of the helper-naming stage): irbuild's pending helper lists
 (PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName and slices.Append) and LLVM
 codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named managed-slices with a drop site per
