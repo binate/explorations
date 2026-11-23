@@ -625,6 +625,16 @@ liveness, so it computes the same LivenessInfo again: about 0.9% of a native com
 of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
 pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
+### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🔴 OPEN (found 2026-11-23, work-3, review)
+
+Every native backend's getOperand resolves an aggregate operand that has a data region (LookupAlloc) before its
+spill slot, so the 8-byte slot holding the region's address -- and the store that fills it at the definition
+(handleResult's eager store) -- is never read; the one other reader is x64's indirect-call target stash, which
+keeps an aggregate-returning call's target in the call's own slot (x64_call_indirect.bn, x64_iface.bn).  Found by
+the review of the pointer-slot sharing (which shares these slots, 2026-11-23).  Dropping the slot and the store for
+values with a region would save more frame bytes than sharing them and a store per value; the x64 stash would need
+a slot of its own.  Measure how many of the shared pointer slots belong to values with regions first.
+
 ### Native frames: aggregate values' pointer slots are never shared — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "Share aggregate pointer slots (Recommended)") (found 2026-11-22, work-3, measuring the frame bytes after plan-native-frame-slots.md step 3)
 
 Aggregate values' pointer slots (an 8-byte spill slot holding the address of the value's bytes) are never shared:
