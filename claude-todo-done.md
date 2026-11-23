@@ -1,3 +1,20 @@
+### asm x64: `data16` before an instruction with an operand-size immediate emitted an imm32 the CPU reads as an imm16 — DONE (binate `dda6e4f85`, 2026-11-23, work-2; user: "Reject, add pushw imm (Recommended)", "Reject both (Recommended)" for the relative branches, landed on "wait 4 minutes, then land") (MAJOR: silent wrong code in bnas, clang and GNU as alike; found 2026-11-22, the review of the rex64 change)
+
+`data16 mov eax, 1` is 66 b8 01 00 00 00 in bnas, clang and GNU as; with the 66 the CPU reads `mov ax, 1` (66 b8
+01 00) and then 00 00 as `add [rax], al`.  The same holds for `data16 add eax, 0x12345678` (66 05 and an imm32),
+`data16 test eax, 1`, `data16 imul eax, ebx, 1000`, `data16 mov dword ptr [rax], 1` and `data16 push 0x1234` (66
+68 and an imm32 in bnas and clang; GNU as alone emits the imm16 there, 66 68 34 12).  The imm8 forms are sound
+(`data16 add eax, 1`, 66 83 c0 01).  It mirrors rex64 before an immediate REX.W widens, which the user chose to
+reject (2026-11-22, plan-asm-x64-isa.md).  Options: reject data16 before an instruction whose operand-size
+immediate it narrows, as for rex64; or emit the narrowed immediate, as GNU as does for push.
+
+Fixed: data16 before an imm32 of a 32-bit operation (MOV B8+r / C7, ALU 05 / 81, TEST A9 / F7, IMUL 69) or push's
+imm32 is an error (asm.Assembler.X64Data16, x64's data16NarrowOk; REX.W, a 64-bit register's or rex64's, overrides
+the 66 and the imm32 stands); so is data16 before a relative branch without REX.W (xbegin, jmp, jcc, call, the
+loop family: x64.Data16BranchOk), whose 66 makes xbegin's rel32 a rel16 on every CPU and a near branch's on AMD's.
+GNU as's `pushw imm` / `push word ptr imm` (66 6A ib / 66 68 iw) give the 16-bit push of an immediate.  Tests:
+asm/parse x64_data16_test.bn, asm/x64 TestData16Narrow, TestPush16Imm, TestData16Branch.
+
 ### unsafe_cast's container retype asks Identical at every level — DONE (binate `8bdaf2071`, 2026-11-23, work-1)
 
 isUnsafeAggregateLeafRetype asks Identical (and SizeIfFits) of each level's elements, and each walks every level
