@@ -3143,6 +3143,18 @@ end that line too, so together they run past the cap: `v2 := *gggggggggg(/* c7 *
 not fit on the line together.  writeGapSeparator (print_listcomments.bn) places the comments between elements without
 measuring such a run, and can measure it the same way.
 
+### bnfmt lets a C-style loop's header run past the cap by its post statement and ` {` — 🔴 OPEN 🟢 LOW (found 2026-11-22, temp-4, review of the condition composites' comments; pre-existing, main and bnfmt `bnc-0.0.17` the same)
+
+`for i := 0; g(<72 a's>, b).n < 1; i++ {` prints on one line 104 wide, though the call could break after its `,`.
+The condition reserves only `; ` after it (condTail, print_header.bn; the post statement and ` {` only when
+comments follow the `{` on its line), as if the post could go on to a continuation line, but after the second `;`
+the header breaks only for a comment that needs a line break (writeOpenGap, writeGapSeparator), never for the
+width.  The post prints with nothing reserved after it either (printSimpleStmtCond: `printIncDec(b, s, true, 0)`,
+and an assignment's right-hand side through printExprListGaps), so `for i := 0; i < n; g(<72 a's>, b).n++ {`
+prints 104 wide and `... .n += 1 {` 107.  Fix: reserve the post statement and ` {` in the condition, as condTail
+does when comments follow the `{`, or break after the `;` when the post does not fit there; and give the post
+the ` {` and the comments after it as its tail.
+
 ### bnfmt's comparison corpora hold no `.bni` file, and check.py re-reads every output as a `.bn` — 🔴 OPEN 🟢 LOW (tooling; found 2026-11-14, temp-4, validating the signature hold's removal)
 
 binate scripts/bnfmt-check/corpora.sh lists only `*.bn` files (the tree corpus and those built from it), so none of the
