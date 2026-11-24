@@ -1,3 +1,13 @@
+### Native frames: values with a spill slot but no recorded span kept slots of their own — DONE (binate `724184214`, 2026-11-23, work-3; user: "go ahead with 1")
+
+A tally by op showed every one of them was a GEP folded into its load or store (927 field and 128 element GEPs in
+the parser, 5,899 and 1,000 in irgen): the liveness leaves a folded GEP out, so it had no span, yet needsSpillSlot
+gave it a slot nothing ever stored or read.  needsSpillSlot now gives no slot to any value a fold elides
+(IsFoldedAway), which also frees the shared slots folded constants and compares took; arm32 skips a folded constant
+before its 64-bit lowering.  The parser's native aarch64 frames at -O2 80,752 -> 70,688 bytes (LLVM 77,376),
+irgen's 340,848 -> 275,296 (LLVM 170,848); parsePrimaryExpr 1,040 -> 752.  Full native aa64 -O0 / -O2, x64, arm32
+bare metal 3980 / 3980 / 3980 / 3935, 0 failed; arm32 Linux subset 672/0.
+
 ### The walks over an interface's ancestors take time exponential in a ladder of diamonds — DONE (binate `b6953590d`, 2026-11-23, work-1)
 
 None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked

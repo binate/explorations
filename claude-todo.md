@@ -600,14 +600,6 @@ liveness, so it computes the same LivenessInfo again: about 0.9% of a native com
 of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
 pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
-### Native frames: values with a spill slot but no recorded span keep slots of their own — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "go ahead with 1") (found 2026-11-22, work-3, measuring the frame bytes)
-
-After binate `0c2bcea66` the largest unshared part of native frames is the spill slots of values that are not
-aggregate, not multi-return tuples and not call or OP_BOX results, and whose span the register allocator never
-records, so planSharedSpills cannot share them: 8,440 bytes of the parser's frames and 55,080 of irgen's at -O2
-(aarch64; plan-native-frame-slots.md, Progress, 2026-11-22).  Find which values these are (by op, and whether a
-fold elides them) and why they have no span, then share or drop their slots.
-
 ### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🔴 OPEN (found 2026-11-23, work-3, review)
 
 Every native backend's getOperand resolves an aggregate operand that has a data region (LookupAlloc) before its

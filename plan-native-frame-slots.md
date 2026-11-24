@@ -270,3 +270,6 @@ today.
   at -O2 (aarch64) 80,752 bytes against LLVM's 77,376, irgen's 339,520 against 170,848.  Before it, binate
   `61ab9d237` (2026-11-22) gave each function's liveness passes one shared CFG and the aggregate pass hulls only,
   bringing native compile time back below where it was before step 3.
+- No spill slot for a value a fold elides: binate `724184214` (2026-11-23).  The unshared scalar slots were all
+  folded GEPs.  parsePrimaryExpr native aarch64 / x64 / arm32 at -O2 752 / 768 / 448; the parser's frames at -O2
+  (aarch64) 70,688 bytes against LLVM's 77,376, irgen's 275,296 against 170,848.
