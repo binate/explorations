@@ -570,6 +570,17 @@ IR-gen cannot map is an internal error, never `int`.
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
    IN PROGRESS (work-6, 2026-11-23; user: "yes, go ahead").
+   Increments (2026-11-23, work-6), from a probe of the 66 checker-nil branches in irgen: 100 unit tests reach one
+   (74 in irgen, in 28 files; 26 in codegen and the native backends, through five calls of GenModule(nil)), through
+   22 of the branches.
+   - 7a-1: the behavioural tests that run IR-gen without a checker check their programs first (decision 5); no
+     production change.
+   - 7a-2: a checker is required: an IR-gen entry point given none is an internal error, the checker-nil branches go,
+     with the literal-kind inference of a package variable's type (4d4) and the white-box tests of what goes.
+   - 7b: CurrentImportPkg, the import overlays and the bare-name precedence, with their white-box tests (the archived
+     draft, rebased onto 7a).
+   - 7c: checked syntax with no record is an internal error (the 5c-1 review's note (a)), so only IR-gen's own syntax
+     is read by its spelling; the type and value differentials go (decision 2).
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
