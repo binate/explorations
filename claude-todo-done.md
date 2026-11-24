@@ -18,6 +18,19 @@ the cap (renders only after a comment break) laid nested slices out as a stairca
 wide), as past the cap a slice's `[` never breaks; and skipping the measure when the bound's one-line rendering fits
 cost more renderings than it saved.  Test: print_slice_test.bn TestSliceLowBoundStartsALineWhenItDoesNotFit.
 
+### Checking is quadratic in a package's number of declarations: IR-gen's line stamping -- DONE (binate `e82486ca6`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+annotateBlockInstrs (irgen/gen_stmt.bn), which genBlock calls after each statement, walked the whole current block:
+quadratic in a block's statements (the init body, one block of every initializer; any long straight-line function).
+It starts where the last stamp of the block ended (Block.LinesFrom), unless the instruction that stamp ended at
+(Block.LinesAt) has moved -- an insertion before it (EmitEntryAlloc before a stamped terminator, EmitAllocAt) or a
+cut -- when it starts over; a line of 0 stamps nothing and leaves the record alone.  A 20,000-link chain of typed
+variables 0.40-0.41 s from 1.40-1.57 s.  Every line kept: the `-g` LLVM IR of cmd/bnc (3 targets, ~88,000 `!dbg`)
+and of all 2,998 corpus programs identical to main's; the review found no way to break it, and its two test cases (a
+stamp after a line-0 call; an alloc before a stamped terminator) are in TestAnnotateBlockInstrs.  The review also
+found a frame-record alloca inserted after the entry block stops being current never stamped (line 1), filed under
+the DWARF entry.
+
 ### Checking is quadratic in a package's number of declarations: Module.Globals and IR-gen's global lookups -- DONE (binate `438f0e242`, `6e9074441`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
 
 ir.Module.AddGlobal appended each global by copying Module.Globals; it pushes onto GlobalsVec and keeps Globals its
