@@ -567,7 +567,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### perf/frame-sizes.sh leaves out a prologue's pushes, so it overstates native frames against LLVM's — 🔴 OPEN (found 2026-11-23, work-3)
+### perf/frame-sizes.sh leaves out a prologue's pushes, so it overstates native frames against LLVM's — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "go ahead") (found 2026-11-23, work-3)
 
 The script sums only a function's `sub sp` / `sub rsp` adjustments, so it leaves out the registers a prologue
 pushes before them -- LLVM's callee-saved pairs on aarch64 (`stp ..., [sp, #-N]!`), x86-64's `push`es, arm32's
