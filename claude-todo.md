@@ -567,7 +567,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### native/common.bni is near its 1000-line cap: the in-place frame analyses could move to a package of their own — 🔴 OPEN (found 2026-11-22, work-3; user chose to add to the file for now)
+### native/common.bni is near its 1000-line cap: the in-place frame analyses could move to a package of their own — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "then maybe split native/common.bni before taking on the other items") (found 2026-11-22, work-3)
 
 pkg/binate/native/common.bni is at about 968 lines (2026-11-22).  The natural split found: the in-place frame
 analyses, which only PlanFrame's planning and the backends ask -- AggLoadElision / AggLoadElider / AGG_LOAD_* (also
