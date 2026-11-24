@@ -18,6 +18,16 @@ the cap (renders only after a comment break) laid nested slices out as a stairca
 wide), as past the cap a slice's `[` never breaks; and skipping the measure when the bound's one-line rendering fits
 cost more renderings than it saved.  Test: print_slice_test.bn TestSliceLowBoundStartsALineWhenItDoesNotFit.
 
+### Checking is quadratic in a package's number of declarations: Module.Globals and IR-gen's global lookups -- DONE (binate `438f0e242`, `6e9074441`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+ir.Module.AddGlobal appended each global by copying Module.Globals; it pushes onto GlobalsVec and keeps Globals its
+view, rebuilding the vec from Globals when a writer has replaced it (the REPL's rollback truncates it).  IR-gen's
+recordedGlobal (each read of a package variable) and lookupImportedGlobalPtr walked GlobalVars by name; they ask
+GlobalVarIndexLookup (the same first entry).  A 20,000-link chain of typed variables 1.01-1.09 s from 1.62-1.82 s
+(what is left of its IR-gen is mostly annotateBlockInstrs, still on the entry).  Unchanged against main: cmd/bnc's
+LLVM IR on 3 targets, all 2,998 corpus programs; the review found nothing (it found newPackageStaticSlot, now on the
+entry).  Tests: TestAddGlobalAfterGlobalsCut.
+
 ### perf/frame-sizes.sh left out a prologue's pushes, so it overstated native frames against LLVM's — DONE (binate `e921ee302`, 2026-11-24, work-3; user: "go ahead")
 
 It now prints the stack a prologue takes -- adjustments plus pushes (aarch64 `stp`/`str` to `[sp, #-N]!`, x86-64

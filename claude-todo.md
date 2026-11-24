@@ -2863,9 +2863,10 @@ give them the value-argument builtins' wrapping and comments.
 ### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
 The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`; a package's
-descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; and
-the variables' initialization order since `57682da11` (claude-todo-done.md).  What is left grows with a package's
-number of declarations elsewhere:
+descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; the
+variables' initialization order since `57682da11`; Module.Globals and IR-gen's lookups of a package variable's
+global since `438f0e242` / `6e9074441` (claude-todo-done.md).  What is left grows with a package's number of
+declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
@@ -2879,8 +2880,6 @@ number of declarations elsewhere:
   and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
   managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
   before the front-end step; ~5% in the pending helper lists);
-- ir.Module.AddGlobal (ir/ir.bn, slices.Append per global; found 2026-11-23 by the review of the init-order walk): a
-  20,000-link chain of typed variables 3.55 s at `--emit-llvm` against 0.68 s at 8,000, nearly all of it there.
 - IR-gen's annotateBlockInstrs (irgen/gen_stmt.bn), which genBlock calls after each statement, walks the whole
   current block to stamp lines on its instructions that have none: quadratic in a block's statements -- the init
   body (one block of every initializer) and any long straight-line function; half of a 20,000-link chain's IR-gen.
