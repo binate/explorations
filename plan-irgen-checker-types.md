@@ -569,6 +569,7 @@ IR-gen cannot map is an internal error, never `int`.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
+   IN PROGRESS (work-6, 2026-11-23; user: "yes, go ahead").
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
