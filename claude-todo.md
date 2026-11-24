@@ -2879,6 +2879,13 @@ number of declarations elsewhere:
   before the front-end step; ~5% in the pending helper lists);
 - ir.Module.AddGlobal (ir/ir.bn, slices.Append per global; found 2026-11-23 by the review of the init-order walk): a
   20,000-link chain of typed variables 3.55 s at `--emit-llvm` against 0.68 s at 8,000, nearly all of it there.
+- IR-gen's annotateBlockInstrs (irgen/gen_stmt.bn), which genBlock calls after each statement, walks the whole
+  current block to stamp lines on its instructions that have none: quadratic in a block's statements -- the init
+  body (one block of every initializer) and any long straight-line function; half of a 20,000-link chain's IR-gen.
+  An exact fix must still stamp instructions inserted mid-block (EmitEntryAlloc before the entry's terminator,
+  EmitAllocAt, a terminator popped and re-pushed), e.g. by scanning from where the last stamp ended and falling
+  back to a full scan when the instruction it ended at has moved (found 2026-11-23, work-1, profiling AddGlobal's
+  change).
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
