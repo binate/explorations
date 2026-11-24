@@ -3019,14 +3019,7 @@ recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
 `664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of
 parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`; those after the `(` of parentheses bnfmt
-keeps in binate `303dc49d1`)
-
-Next, before the `...` gap (user, 2026-11-23: "Next commit (Recommended)"): a slice's low bound that does not fit on
-its line.  printSlice breaks after the `[` only for the comments of the `[` gap (writeSliceOpenGap), so `x = <41
-a's>[(-<45 c's>).f:y]` prints 108 wide, as before binate `303dc49d1`; since that commit a comment after the bound's
-`(` (`[(/* k2 */ -c…).f:y]`) stays there and no longer makes the line break, 107 wide where it printed 47 and 65 (13
-of that review's 300 generated files get a line past the cap, 12 lose one).  Fix: break after the `[` when the low
-bound does not fit, comments or not.
+keeps in binate `303dc49d1`; a slice's low bound that does not fit after its `[` in binate `fd4f3a7fd`)
 
 One gap still has no printer of its own, so a comment in it is printed by a neighbouring gap, or after the
 statement, out of its place.  It can claim its comments by position now that a comment records the tokens around it

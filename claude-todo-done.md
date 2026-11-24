@@ -1,3 +1,23 @@
+### bnfmt let a slice's low bound that did not fit after its `[` run past the cap — DONE (binate `fd4f3a7fd`, 2026-11-23, temp-4; user: "Next commit (Recommended)", then "let's try to reduce the cost" and "Land the exact version"; landed on "yes, go ahead") (LOW; part of "bnfmt moves a comment after a `...` or in parentheses around an expression out of its place"; found 2026-11-22, the review of the kept-`(` change)
+
+A slice's low bound that does not fit on its line.  printSlice breaks after the `[` only for the comments of the `[`
+gap (writeSliceOpenGap), so `x = <41 a's>[(-<55 c's>).f:y]` prints 108 wide, as before binate `303dc49d1`; since
+that commit a comment after the bound's `(` (`[(/* k2 */ -c…).f:y]`) stays there and no longer makes the line break,
+107 wide where it printed 47 and 65 (13 of that review's 300 generated files get a line past the cap, 12 lose one).
+Fix: break after the `[` when the low bound does not fit, comments or not.
+Fixed: the low bound goes to a continuation line, two tabs in, with or without comments after the `[`, when its
+first line does not fit where it is (boundMoves, print_slice.bn), measured with the bound laid out by width alone
+from where it starts (boundAt), so a call's `g(` stays on the `[`'s line and a block comment after the bound's own
+`(` counts; a bound with no break in it is measured by boundShare, with no further rendering.  A bound whose later
+lines would pass the cap further moved stays (as fitsPlacedOrMoved keeps a list's element), and a block comment
+after the `:` does not count (writeSliceBreak moves it), a line comment there does.  The review found the moved
+bound's later lines, the double break in an operator chain (a call operand does the same) and the cost: slices
+nested 40 to 80 deep in low bounds take 2 to 2.7 times main's time (already 2.6 to 34 s), a deep 600-file fuzz batch
+1.2 times, real files the same.  Two cheaper measures were tried and dropped: the first line of the layout from past
+the cap (renders only after a comment break) laid nested slices out as a staircase and missed breaks (lines to 113
+wide), as past the cap a slice's `[` never breaks; and skipping the measure when the bound's one-line rendering fits
+cost more renderings than it saved.  Test: print_slice_test.bn TestSliceLowBoundStartsALineWhenItDoesNotFit.
+
 ### perf/frame-sizes.sh left out a prologue's pushes, so it overstated native frames against LLVM's — DONE (binate `e921ee302`, 2026-11-24, work-3; user: "go ahead")
 
 It now prints the stack a prologue takes -- adjustments plus pushes (aarch64 `stp`/`str` to `[sp, #-N]!`, x86-64
