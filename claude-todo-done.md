@@ -24,6 +24,20 @@ cost of 1.6 to 6 times main's time on parentheses nested 60 to 150 deep, none on
 print_exprstart_test.bn TestOpenerCommentsOfKeptParensStayInPlace, TestOpenerCommentsOfKeptParensBreak,
 TestOpenerCommentsOfDroppedParensGoBefore; print_rendermemo_test.bn TestFormatCommentedParensRenders.
 
+### Checking is quadratic in a package's number of declarations: the variables' initialization order -- DONE (binate `57682da11`, `ed43a26cb`, 2026-11-23, work-1; user: "Land; add it to my list"; the rest of the entry stays open)
+
+resolveTopLevelVarOrder walked a package's init-vars depth-first, recursing once per read it followed and scanning
+lists at each step (nameInList over VarOrdered / VarVisiting / the names, findVarDecl), each grown by copying:
+quadratic in the variables, and a chain of reads (`var v0 int = v1 + 1`, ...) crashed bnc with a stack overflow at
+8,000 links (4,000 on a 4 MB stack).  The init-vars are now in a vec with a mark each and the first of each name in
+a table, and the walk keeps its path on a stack of its own (check/check_var_order.bn), in the same order;
+Checker.VarVisiting is gone.  16,000 independent variables 1.15-1.40 s from 4.82-5.26 s; a 20,000-link chain
+compiles in 3.2 s.  Unchanged against the parent: cmd/bnc's LLVM IR on 3 targets and all 2,998 corpus programs (the
+33 var-init regressions among them); the review's 16 probes agreed, and its finding (the header overstated
+linearity: an initializer's reads are still collected by copying) went into the comment and the large-expression
+entry.  `ed43a26cb` adds TestEmitModuleDropsFuncIndex for the codegen index drop of `2bf8681b9`.  Tests:
+TestVarInitOrderSharedRead, TestDeepVarInitChain, TestDeepVarInitChainCycle, TestEmitModuleDropsFuncIndex.
+
 ### Checking is quadratic in a package's number of declarations: a package's descriptor, `.bni` export marks, init body, globals and function-value triples -- DONE (binate `191656e51`..`2bf8681b9`, 2026-11-23, work-1; user: "Land it"; the rest of the entry stays open)
 
 A package with many functions, variables and constants in both its `.bni` and `.bn`: irdata's

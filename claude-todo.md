@@ -2872,16 +2872,10 @@ give them the value-argument builtins' wrapping and comments.
 
 ### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
-The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`, and a package's
-descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`
-(claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
-- a package with many functions, variables and constants in both its `.bni` and `.bn`: the checker's
-  resolveTopLevelVarOrder (visitVarByName, nameInList, findVarDecl, appendPkgVarDecls) is what is left of it (8,000
-  of each 3.3-6.9 s on a busy machine; independent `var vI int = I`: 4,000 0.25 s, 8,000 0.74 s, 16,000 3.1 s).
-  Its depth-first walk also recurses once per link of a chain of initializer reads (`var v0 int = v1 + 1`, ...),
-  so bnc crashes (SIGSEGV, stack overflow in collectVarDepsIn) at 8,000 links on an 8 MB stack, 4,000 on a 4 MB
-  one (6,000 compile in 0.7 s; 8,000 compile with a 64 MB stack); the deep-nesting stages' 20,000-deep variable
-  chains are type-level (`var A0 [len(A1)]int8`) and never reach it (found 2026-11-23, work-1, measuring it);
+The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`; a package's
+descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; and
+the variables' initialization order since `57682da11` (claude-todo-done.md).  What is left grows with a package's
+number of declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
@@ -2899,7 +2893,7 @@ descriptor, `.bni` export marks, init body, globals and function-value triples s
   20,000-link chain of typed variables 3.55 s at `--emit-llvm` against 0.68 s at 8,000, nearly all of it there.
 Fix: index what these scan by name, and build the lists with vec.
 
-### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🔴 OPEN 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
+### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
 
 `var v0 = v1 + 1` / `var v1 = v2 + 1` / ... / `var vN = 0` compiles at 1,000 links (0.2 s) and crashes bnc (SIGSEGV,
 stack overflow, 0.05 s in) at 2,000 on an 8 MB stack; with a 64 MB stack 20,000 still crash.  The same chain with
