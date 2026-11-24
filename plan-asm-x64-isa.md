@@ -390,4 +390,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   L64); two older parser gaps it noticed (notrack, a three-operand unknown mnemonic's message) are in
   claude-todo.md.
 
-Next: 3d (AES, CLMUL, SHA, GFNI's SSE forms, Key Locker's XMM forms, SSE4a, 3DNow! with femms).
+- Stage 3d (AES, CLMUL, SHA, GFNI, Key Locker, SSE4a, 3DNow!) — landed binate `66e9bd6ed` (2026-11-23; user: "wait
+  4 minutes, then land"): the table's fourth part (sse_table_ext.bn, 53 forms) and femms; CLMUL's selector names
+  as aliases (sse_alias.bn, beside the compare predicates'); the encoder reworked around an operand list and a
+  row: 3DNow!'s opcode after the operand (written 0f.9e), two immediates and a fourth operand (Emit4, for SSE4a's
+  insertq), a class A of memory of any size (Key Locker's handle, as clang).  Kept difference: a 3DNow! [rip + x]
+  counts the opcode byte after its rel32, as GNU as (R_X86_64_PC32 x-5; Mach-O SIGNED_1); clang leaves it out, so
+  its rel32 addresses the byte after the target.  The MMX-register sweep of every LLVM mnemonic now agrees with
+  clang in full.  Stage 3 is complete.
+
+Next: stage 4, VEX (asm/x64/avx): AVX, AVX2, FMA, F16C, the 2- and 3-byte VEX prefixes, 256-bit forms and gathers;
+AMD's XOP vector instructions and FMA4; the pseudo-prefixes {vex} / {vex2} / {vex3}.
