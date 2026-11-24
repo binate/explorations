@@ -599,9 +599,14 @@ IR-gen cannot map is an internal error, never `int`.
      declImports' use() also returns a declaration's source file, which registration passes take: keep that lookup
      where the file serves anything but the alias map.  Checked syntax still read by name keeps the overlays needed:
      homedQualifier reads a qualifier through the import alias map (irbuild.ResolveImportPkg) for interface lookups,
-     the impl keys, instantiatedAliasTarget and resolveTypeExpr's generic instances.  First probe which alias-map
-     reads (homedQualifier, ResolveImportPkg, isImportAliasName) a checked program still reaches; those move to the
-     records, probably with 7c.
+     the impl keys, instantiatedAliasTarget and resolveTypeExpr's generic instances.
+     Probe (2026-11-24, work-6: a note at each of the 15 calls that read the alias map -- every homedQualifier and
+     buildQualNameHomed call and methodExprName's isImportAliasName -- over every conformance program and cmd/bnc
+     under bnc, the VM multi-package conformance tests and e2e/repl.sh): with a checker, the map is read only by
+     getSelectorType's imported-variable arm on the head `pkg.Box` of a method expression `pkg.Box[int].M` (1042,
+     1212), which the checker records as a type and not its head; no global of that name exists, so the answer is
+     dropped.  So the overlays change no answer with a checker, and 7b-2 can delete them before 7c; the head query
+     is 7c's (getSelectorType asks the record first: an expression recorded as a type has no value type).
    - 7c: checked syntax with no record is an internal error (the 5c-1 review's note (a)), so only IR-gen's own syntax
      is read by its spelling; the type and value differentials go (decision 2).  Its tests, left by 7a-1: those that
      check their programs but go on after a check error (codegen's compileToLLVM / compileToLLVMOpt; irgen's
