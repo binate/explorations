@@ -567,6 +567,14 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
+### perf/frame-sizes.sh leaves out a prologue's pushes, so it overstates native frames against LLVM's — 🔴 OPEN (found 2026-11-23, work-3)
+
+The script sums only a function's `sub sp` / `sub rsp` adjustments, so it leaves out the registers a prologue
+pushes before them -- LLVM's callee-saved pairs on aarch64 (`stp ..., [sp, #-N]!`), x86-64's `push`es, arm32's
+`push {...}` -- which native keeps inside the frame it subtracts.  Its native-vs-LLVM comparisons overstate native:
+irgen's total at -O2 read 1.6x LLVM's, and is 1.24x with the pushes counted (plan-native-frame-slots.md, Progress,
+2026-11-23).  Count the pushes too (each arch's forms), and report the frame and the pushes separately.
+
 ### native/common.bni is near its 1000-line cap: the in-place frame analyses could move to a package of their own — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "then maybe split native/common.bni before taking on the other items") (found 2026-11-22, work-3)
 
 pkg/binate/native/common.bni is at about 968 lines (2026-11-22).  The natural split found: the in-place frame
