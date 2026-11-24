@@ -597,7 +597,7 @@ instructions of prologue per such parameter; check every NeedSpill of a paramete
 reloads take only scalars).  Found reviewing the region-owner slots (values, 2026-11-24), which leave parameters as
 they were.
 
-### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3; measured 2026-11-22 at 5-8% of the native frame bytes, see the plan's Progress)
+### Native frames: a call's copies of its by-reference struct arguments are never shared — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "go ahead") (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3; measured 2026-11-22 at 5-8% of the native frame bytes, see the plan's Progress)
 
 After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64
 1,776 / 1,824, arm32 1,312 / 1,488), against 1,344 for LLVM -O2 on aarch64.  Left: the backends' per-call copies of
