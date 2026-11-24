@@ -2886,6 +2886,9 @@ number of declarations elsewhere:
   EmitAllocAt, a terminator popped and re-pushed), e.g. by scanning from where the last stamp ended and falling
   back to a full scan when the instruction it ended at has moved (found 2026-11-23, work-1, profiling AddGlobal's
   change).
+- IR-gen's newPackageStaticSlot (irgen/gen_slice_lit.bn) names each package-level raw-slice literal's backing
+  (`__rawslice_backing_<k>`) by counting the globals with that prefix: quadratic in a package's such literals (found
+  2026-11-23 by the review of the Globals vec; a per-prefix counter on the module would do).
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
