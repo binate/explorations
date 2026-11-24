@@ -2897,6 +2897,18 @@ descriptor, `.bni` export marks, init body, globals and function-value triples s
   before the front-end step; ~5% in the pending helper lists).
 Fix: index what these scan by name, and build the lists with vec.
 
+### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🔴 OPEN 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
+
+`var v0 = v1 + 1` / `var v1 = v2 + 1` / ... / `var vN = 0` compiles at 1,000 links (0.2 s) and crashes bnc (SIGSEGV,
+stack overflow, 0.05 s in) at 2,000 on an 8 MB stack; with a 64 MB stack 20,000 still crash.  The same chain with
+declared types (`var v0 int = v1 + 1`) compiles at 20,000 once the init-order walk is iterative.  batchVarOnDemand
+(check/check_decl_batch_var.bn) checks a variable whose type is inferred from its initializer when it is read
+(defineVarOnDemand), and that check reads the next one, so the expression checker recurses once per link, a few KB
+of stack each.  The deep-nesting stage 3a walk (check_by_name_vars.bn) resolves ahead only a variable with a
+declared type or a function.  Fix (needs investigation): resolve what an inferred-type variable's initializer reads
+ahead, in the walk, before checking it.  No test yet: a deep unit test would crash the package's test binary; a
+generated conformance chain (`.xfail.all`) would do.
+
 ### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
 With -g, bnc emits the debug info of a ring of structs each holding a pointer to the next (binate `7f47f5003` interns
