@@ -593,7 +593,7 @@ IR-gen cannot map is an internal error, never `int`.
      with it.  Every module's objects unchanged (codegen-ab.sh, all three corpora); VM multi-package conformance and
      the REPL e2e green.  Its review found no behaviour change (a probe of a generic body naming its own package's
      names beside same-named ones of the consumer: same output, no differential note).
-   - 7b-2: the import overlays -- pushFileImports / overlayFileImports and their cache, declImports,
+   - 7b-2 DONE: the import overlays -- pushFileImports / overlayFileImports and their cache, declImports,
      AliasMapSnapshot's save / restore around generic instances, parameterized impls and imported CONST_EXPR
      constants (ModuleConst.ImportNames / ImportPaths), RegisterSourceFiles -- with their white-box tests.
      declImports' use() also returns a declaration's source file, which registration passes take: keep that lookup
@@ -607,6 +607,13 @@ IR-gen cannot map is an internal error, never `int`.
      1212), which the checker records as a type and not its head; no global of that name exists, so the answer is
      dropped.  So the overlays change no answer with a checker, and 7b-2 can delete them before 7c; the head query
      is 7c's (getSelectorType asks the record first: an expression recorded as a type has no value type).
+     DONE (binate `42323d7b6`, 2026-11-24; user: "wait 12 minutes, then land; then continue"): the overlays, the
+     per-file source registry (RegisterSourceFiles) and GeneratePackage's file parameter go, with the files each
+     generic was stashed with and a constant expression's saved imports; getSelectorType gives no value type to an
+     expression the checker recorded as a type (TestGetSelectorTypeOfAGenericInstanceIsNone).  Its review found no
+     behaviour change (one package's two files binding one alias to different packages, about a dozen constructs,
+     and a same-spelled one-segment package: the same IR).  Every module's objects unchanged (codegen-ab.sh, all
+     three corpora); VM multi-package conformance and the REPL e2e green.
    - 7c: checked syntax with no record is an internal error (the 5c-1 review's note (a)), so only IR-gen's own syntax
      is read by its spelling; the type and value differentials go (decision 2).  Its tests, left by 7a-1: those that
      check their programs but go on after a check error (codegen's compileToLLVM / compileToLLVMOpt; irgen's
