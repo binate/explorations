@@ -1,3 +1,14 @@
+### native/common.bni was near its 1000-line cap: the in-place frame analyses moved to a package of their own — DONE (binate `8602ab900`, `9f2fb44f6`, 2026-11-23, work-3; user: "then maybe split native/common.bni before taking on the other items")
+
+pkg/binate/native/inplace holds AggLoadElision / AggLoadElider / AGG_LOAD_*, CallResultSlots, ReturnedCallResults,
+RetbufLocal, LastUseArgLoads, InPlaceParamSlots and IsCaptureParam, with their use index (FuncUses, exported with a
+method per analysis for PlanFrame), the whole-use predicates, the alloca scope check and IsAggregateAlias; the
+RegMap methods that read their results stay in native/common; IsIndirectCallOp and CallArgBase moved to
+native/callconv (`8602ab900`).  common.bni 971 -> 893 lines.  85 tests moved; they now also run on the arm32
+bare-metal unit lane (85 passed) and unsplit under the VM (2 s).  Objects of six untouched packages byte-identical
+against the parent's compiler (36 native, 12 LLVM).  CLAUDE.md's BUILDER-surface list gained the package (workspace
+`7516611`).
+
 ### bnfmt moved a comment right after a `(` it keeps out of its place — DONE (binate `303dc49d1`, 2026-11-23, temp-4; user: "Start counts the `(` (Recommended)", "In place, break after `(`", "Start at a written `(` (Recommended)"; on the review, "Next commit (Recommended)" for the slice bound and "Land as is (Recommended)" for the per-paren cost; landed on "yes, go ahead") (part of "bnfmt moves a comment after a `...` or in parentheses around an expression out of its place"; seen 2026-11-08)
 
 Right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps only

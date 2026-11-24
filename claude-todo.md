@@ -575,18 +575,6 @@ pushes before them -- LLVM's callee-saved pairs on aarch64 (`stp ..., [sp, #-N]!
 irgen's total at -O2 read 1.6x LLVM's, and is 1.24x with the pushes counted (plan-native-frame-slots.md, Progress,
 2026-11-23).  Count the pushes too (each arch's forms), and report the frame and the pushes separately.
 
-### native/common.bni is near its 1000-line cap: the in-place frame analyses could move to a package of their own — 🟡 IN PROGRESS (claimed 2026-11-23, work-3; user: "then maybe split native/common.bni before taking on the other items") (found 2026-11-22, work-3)
-
-pkg/binate/native/common.bni is at about 968 lines (2026-11-22).  The natural split found: the in-place frame
-analyses, which only PlanFrame's planning and the backends ask -- AggLoadElision / AggLoadElider / AGG_LOAD_* (also
-asked by codegen and the VM), CallResultSlots / ReturnedCallResults, LastUseArgLoads, RetbufLocal,
-InPlaceParamSlots -- with what they share: funcUses / idSet / slotGroups (the files define their own methods on
-funcUses and read its fields, so all of them move together), the whole-use predicates (common_aggload_whole.bn) and
-scopeEndStrictlyBetween. Checked scope: 7 source files (1,500 lines), 10 test files (2,603 lines); helpers shared
-with native/common (callArgBase, isIndirectCallOp, frameAdd, AppendInt) exported from the new package or
-duplicated; common.bni loses about 75 lines (the RegMap methods such as CallResultSlot stay); codegen, the VM and
-the three backends import the new package, and CLAUDE.md's BUILDER-surface list gains it.
-
 ### The lazy-spill cursor recomputes the GP allocator's liveness -- a second full GP pass per function — 🔴 OPEN (found 2026-11-22, work-3, review of binate `61ab9d237`)
 
 Each native backend's emit_func builds a LiveCursor (RegMap.NewLiveCursor) after PlanFrame with the same function,
