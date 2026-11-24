@@ -1,3 +1,24 @@
+### parser: `a, b++` keeps only `a++` (bnc runs it, bnfmt deletes the `b`), and `a, b += 1` crashes IR-gen — DONE (binate `9ce0aefb3`, 2026-11-23, temp-4; user: "Next, its own commit (Recommended)", landed on "wait 12 minutes, then land") (MAJOR: the compiler accepts invalid code with part of it dropped, and crashes on the compound form; found 2026-11-23, temp-4, the review of the for-header comma fix; pre-existing, bnc-0.0.17 and main alike)
+
+finishSimpleStmtInner (pkg/binate/parser/parse_stmt.bn) builds a `++` / `--` statement from the first expression of
+the list before it and drops the rest, and keeps the whole list before a compound operator (`+=` …), where the
+grammar takes one Expression for both (`IncDecStmt = Expression ( "++" | "--" )`, `Assignment = … | Expression
+compound_assign_op Expression`).  So `a, b++` parses as `a++`: bnc-0.0.17 compiles and runs it (with a = 1, b = 10
+it prints `2 10`), and bnfmt prints `a++`, so `bnfmt -w` deletes the `b`; a loop's post `a, b--` prints as `a--`.
+`a, b += 1` passes the checker and IR-gen panics: "internal error: IR-gen has no type for a component of a
+multi-value result (compiler bug)".
+Fixed: before `++`, `--` or a compound operator, a list of more than one expression is an error at the
+operator, "expected = or := after a list of expressions" (oneOperand in parse_stmt.bn, called from
+finishSimpleStmtInner, so a statement, a loop's init after a first name or not, and its post all reach it); the
+statement is still built, so the parse goes on in step.  Before the fix a loop post `i, j++` incremented only `i`
+(bnc-0.0.17 ran such a loop with `j` left at 100).  No tracked file, embedded test programs included, and no file
+of bnfmt's comparison sets used the form.  Tests: parse_stmt_test.bn TestParseListBeforeOneOperandOp (`++`, `--`,
+`+=`, `-=`, `<<=`, as a statement, a loop's init and its post, with the error's column); conformance
+spec/14-statements 198_err_incdec_list (stmt.incdec) and 199_err_compound_assign_list (stmt.assign.compound).  The
+same commit adds parse_for_test.bn TestParseForListWithoutAssignmentRejected: `for x, y {` and like headers with no
+operator, which the for-header comma fix's new path reaches, give one "expected assignment or declaration" each
+(they did before; nothing tested them on that path).
+
 ### Native frames: values with a spill slot but no recorded span kept slots of their own — DONE (binate `724184214`, 2026-11-23, work-3; user: "go ahead with 1")
 
 A tally by op showed every one of them was a GEP folded into its load or store (927 field and 128 element GEPs in
