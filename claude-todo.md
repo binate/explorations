@@ -3148,6 +3148,42 @@ end that line too, so together they run past the cap: `v2 := *gggggggggg(/* c7 *
 not fit on the line together.  writeGapSeparator (print_listcomments.bn) places the comments between elements without
 measuring such a run, and can measure it the same way.
 
+### bnfmt puts an empty line after a slice's `:` when the comments there do not fit on a continuation line either — 🔴 OPEN 🟢 LOW (found 2026-11-23, temp-4, the review of the slice low-bound break; pre-existing, main before binate `fd4f3a7fd` the same)
+
+`x = <10 a's>[<10 b's>: /* <96 c's> */ // lc` / `y]` prints `x = …[…:`, an empty line, then the comments and `y]` on
+a continuation line.  writeSliceBreak (print_slice.bn) moves a run of comments after the `:` that begins with a
+block comment and does not fit on the `:`'s line to the continuation line, and writeGapComments then breaks again
+before that block comment, which does not fit there either.  Fix: break once -- writeGapComments starts no new line
+for a block comment on a line that holds only its indent.
+
+### bnfmt keeps an assignment's value on the line its left side fills, past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-23, temp-4, a corpus of the kept-`(` change's review; pre-existing, main before binate `303dc49d1` the same)
+
+`(<50 a's> & <30 b's> & <94 c's>).f = y * zzzzzz` prints its left side's last line as `<94 c's>).f = y *`, 106 wide,
+where `…).f =` with the value on a continuation line would be 102 (the `=` cannot start a line: the line before it
+would end the statement).  The left side reserves no room for ` =` (printLhs), and when the value's continuation
+form passes the cap too (rhsContLongest), printRhsValue leaves the value inline.  Since binate `303dc49d1` (a
+comment after a kept `(` stays after it) comments land on such last lines in deep generated code, and two of that
+review's 300 generated files newly pass the cap with a value after a left side's last line (in one the continuation
+form would fit, so something else keeps the value inline there); the other, reduced: `func f() { ( // l27` / `(T{})
+& (/* k26 */ (/* k23 */ 1).String() * (/* d25 */ *(/* k24 */ y && yqqqqqq)).f)[i] /* c5026 */).f = (y) * xqqqqqq }`
+prints a 105-wide `… /* c5026 */).f = y *`.  Fix: the left side reserves ` =`, and when neither form of the value
+fits, the narrower one is taken.
+
+### bnfmt formats some deep nests of slices differently a second time, around a high bound's break after its `:` — 🔴 OPEN 🟢 LOW (found 2026-11-23, temp-4, the review of the slice low-bound break; pre-existing, main before binate `303dc49d1` the same)
+
+Two of that review's fuzz files format differently a second time, with main's bnfmt and the ones before binate
+`303dc49d1` and `fd4f3a7fd` alike.  In the one below (reduced from the first, 927 bytes) the first format puts a
+slice's high bound on a continuation line after `])]]:` (`(qqq… +` below it) and the second keeps it after the `:`
+(`])]]:(qqq… +`), the operands below moving two tabs deeper.  Cause not looked at yet.
+```
+package "p"
+func f(){aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[((dxxxxxxxx))]
+	switch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[cast(int,uyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy)]{}
+	if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa["ssssssssssssssssssss"[nxxxxxxxx[yq]]()["ssssssssssssssssssss"[pqqqqqqqq][(byyyyyyyyyyyyyyy)()]:cast(int,pzzz)()]]!=nil{}
+	for aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[gzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz[wqqq[hyyyyyyyy["s"]][wyyy()|sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq[:]:"sssssssssssssssssssssssssssssssssssssssssssss"[:]]:xzzzzzzzzzzzzzzz[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx(("sssss"),qzzz[// lcllllllllllllllllllllllllllllll
+		:])]]:((qqqqqqqqqqqqqqqqqqqqqqqqqq)+"sssssssssssssssssssssssssssssssssssssssssssss".dxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx).aqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq]!=nil{}}
+```
+
 ### bnfmt lets a C-style loop's header run past the cap by its post statement and ` {` — 🔴 OPEN 🟢 LOW (found 2026-11-22, temp-4, review of the condition composites' comments; pre-existing, main and bnfmt `bnc-0.0.17` the same)
 
 `for i := 0; g(<72 a's>, b).n < 1; i++ {` prints on one line 104 wide, though the call could break after its `,`.
@@ -3159,6 +3195,10 @@ and an assignment's right-hand side through printExprListGaps), so `for i := 0; 
 prints 104 wide and `... .n += 1 {` 107.  Fix: reserve the post statement and ` {` in the condition, as condTail
 does when comments follow the `{`, or break after the `;` when the post does not fit there; and give the post
 the ` {` and the comments after it as its tail.
+The init reserves nothing either (printSimpleStmtCond prints an assignment's right-hand side through
+printExprListGaps, with no tail), so `for i := <32 a's>[(-<40 c's>).f:]; i < n; i++ {` prints 104 wide: the slice's
+low bound measures no room for `; i < n; i++ {`, and does not move after its `[` (found 2026-11-23, temp-4, the
+review of the slice low-bound break).
 
 ### bnfmt's comparison corpora hold no `.bni` file, and check.py re-reads every output as a `.bn` — 🔴 OPEN 🟢 LOW (tooling; found 2026-11-14, temp-4, validating the signature hold's removal)
 
