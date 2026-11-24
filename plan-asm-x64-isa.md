@@ -431,5 +431,16 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   5: clang reads a fourth immediate of vaddss .. vcvtsd2ss as an embedded rounding mode (EVEX), and memory of no
   size after a YMM destination of vcvtpd2ps / vcvtpd2dq / vcvttpd2dq as 512 bits (EVEX).
 
-Next: 4b, AVX / AVX2 integer (the VEX forms of SSE2 .. SSE4.2's integer instructions, AVX2's broadcasts, permutes,
-variable shifts, masked moves, vpblendd, vinserti128 / vextracti128).
+- Stage 4b (AVX / AVX2 integer) — landed binate `526f9b0ce` (2026-11-24; user: "wait 4 minutes, then land"): 367
+  integer forms in three parts (avx_table_int.bn arithmetic, avx_table_int_logic.bn logic / compares / shifts /
+  packs / shuffles / blends, avx_table_int_move.bn moves / inserts / extracts / extensions / AVX2's broadcasts,
+  lane and cross-lane permutes, masked moves), the VEX forms of SSE2 .. SSE4.2 at 128 bits and AVX2's at 256.  The
+  swaps clang makes to reach C5 now come from a probe of every map-0F register form (avx/rows.py reads it), not a
+  list: the commutative 0F integer instructions, and vmovdqa / vmovdqu / vmovq's store forms.
+  x64_avx_choice_test.bn pins that choice for every map-0F register form of 4a and 4b, and the general registers
+  of each width each form takes.  Seen for stage 5: clang encodes as EVEX a shift by an immediate of memory,
+  vpbroadcastb .. q from a general register, vpermq / vpermpd with three operands, and vmovd between XMM
+  registers.
+
+Next: 4c, VSIB memory operands (an XMM / YMM index, reused by stage 5) and the eight gathers; a gather whose mask,
+index and destination are not all different is an error (user 2026-11-23).
