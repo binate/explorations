@@ -1,3 +1,24 @@
+### The walks over an interface's ancestors take time exponential in a ladder of diamonds — DONE (binate `b6953590d`, 2026-11-23, work-1)
+
+None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
+once per path: on a ladder of diamonds (`I_k : A_k, B_k`, with `A_k : I_k+1` and `B_k : I_k+1`) they take time
+exponential in its height -- mergeIfaceMethods and ifaceFullMethods (check_iface_extends.bn) at each interface's
+declaration and impl, types.LookupInterfaceMethod on a miss, ifaceReaches (the parent cycle check, at each
+declaration), isDescendantInterface on a miss, appendParentKeys and ifaceHasAncestorKey (check_pending_impl.bn).
+The deep-nesting stage made them iterative (binate `d6ed98769`, `87a0432de`) but kept the
+revisits, to change no answer or diagnostic.  Fix: a visited set (typeVisits) in each -- the searches and the
+name-deduped lists answer the same with one; mergeIfaceMethods would then report a conflict reached by two paths
+once, not once per path, which is a change in diagnostics to decide (addCheckError keeps repeats).
+Closed 2026-11-23 (binate `b6953590d`): every walk over an interface's ancestors enters each interface once -- the
+ones above (typeVisits; types.LookupInterfaceMethod an identity set of its own, ifaceSeen) and the three that ready an
+interface's parents on demand, which the review found also walked each path (readyIfaceParents, readyParentsFrom,
+readyBniIface: a set of the interfaces readied).  No diagnostic changes: the conflict a second path reaches is the same
+error at the same position, which appendUniqueCheckError keeps once (the note above that addCheckError keeps repeats
+holds only for the REPL's TentativeErrors, whose consumers dedup).  A ladder 22 high: 0.10 s from 3.99 s.  Tests:
+check_iface_ladder_test.bn (ladders 48 high), TestLookupInterfaceMethodLadder.  An impl of such a ladder is still
+exponential in code generation -- its vtable lays each ancestor out once per path: "An impl's vtable has ~2^h slots
+on a ladder of diamonds".
+
 ### REPL: an interface call on a generic named non-struct type's value-receiver method, boxed at the prompt, passes the pointer — DONE (binate `d084c6438`, 2026-11-23, work-6; user: "yes, fix that next", landed on "wait 11 minutes, then land"; MAJOR; silent wrong output; found 2026-11-23, work-6, review of the parameterized-impl fix; pre-existing: a bni from main as of binate `e23810d7f`)
 
 - Symptom: with a main file declaring `interface Sizer { Size() int }`, `type Num[T any] int`, `func (n Num[T]) Size()

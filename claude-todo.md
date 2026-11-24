@@ -2951,18 +2951,6 @@ offset tables).
 value falls through to the field-access message.  Fix: report an interface value's missing method as errNoMember
 does.  Repro: `interface I { m() int }` and `func f(i *I) int { return i.nope() }`.
 
-### The walks over an interface's ancestors take time exponential in a ladder of diamonds — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (compile time; found 2026-11-09, work-1, review of the deep-nesting ancestor walks; pre-existing)
-
-None of the walks over an interface's parents keeps a visited set, so an interface reached by two paths is walked
-once per path: on a ladder of diamonds (`I_k : A_k, B_k`, with `A_k : I_k+1` and `B_k : I_k+1`) they take time
-exponential in its height -- mergeIfaceMethods and ifaceFullMethods (check_iface_extends.bn) at each interface's
-declaration and impl, types.LookupInterfaceMethod on a miss, ifaceReaches (the parent cycle check, at each
-declaration), isDescendantInterface on a miss, appendParentKeys and ifaceHasAncestorKey (check_pending_impl.bn).
-The deep-nesting stage made them iterative (binate `d6ed98769`, `87a0432de`) but kept the
-revisits, to change no answer or diagnostic.  Fix: a visited set (typeVisits) in each -- the searches and the
-name-deduped lists answer the same with one; mergeIfaceMethods would then report a conflict reached by two paths
-once, not once per path, which is a change in diagnostics to decide (addCheckError keeps repeats).
-
 ### IR-gen finds a generic's instances by scanning them by name — compile time superlinear in a package's instance count — 🔴 OPEN 🟢 LOW (found 2026-11-03, work-3, measuring the checker's instance index)
 
 With the checker's funcInstance indexed (binate work-3 batch, "check: find a generic function's instance by an index"),
