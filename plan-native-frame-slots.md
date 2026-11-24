@@ -273,3 +273,13 @@ today.
 - No spill slot for a value a fold elides: binate `724184214` (2026-11-23).  The unshared scalar slots were all
   folded GEPs.  parsePrimaryExpr native aarch64 / x64 / arm32 at -O2 752 / 768 / 448; the parser's frames at -O2
   (aarch64) 70,688 bytes against LLVM's 77,376, irgen's 275,296 against 170,848.
+- 2026-11-23, after binate `724184214`: the frame comparisons with LLVM above (perf/frame-sizes.sh's and the
+  package totals) count only the `sub sp` adjustments, so they leave out LLVM's callee-saved pushes (`stp ..., [sp,
+  #-N]!`), which native keeps inside its adjusted frame: they overstate native.  Counting the pushes too, the total
+  stack of all functions at -O2 (aarch64), native / LLVM: parser 77,424 / 90,288 (0.86x), irgen 306,592 / 246,480
+  (1.24x), check 569,184 / 486,864 (1.17x).
+- Native's frame bytes by area then (aarch64 -O2, parser / irgen / check): scoped allocas (shared) 30,232 / 53,752
+  / 114,120; register saves 9,088 / 54,288 / 98,912; shared regions 11,272 / 45,792 / 74,320; parameter slots and
+  regions 4,184 / 34,944 / 56,848; shared spill slots 4,184 / 32,040 / 48,432; argument copies 8,488 / 21,848 /
+  51,872; unscoped allocas 416 / 9,360 / 11,400; multi-return tuples 416 / 7,824 / 16,680; regions of their own
+  1,416 / 5,744 / 19,208; alignment 1,136 / 6,424 / 12,448.
