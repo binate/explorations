@@ -3560,6 +3560,10 @@ The one remaining, open-ended piece:
 - Thread source positions through more IR-gen sites (statements, assignments, calls) for
   finer-grained `DILocation` — today only `genExpr` threads `.Line`; most emission sites rely
   on coarse statement-line backfill. No columns.
+  One case the backfill misses outright: an instruction inserted into the entry block after it
+  stops being the block statements end in (a closure's frame-record alloca, EmitAllocAt at
+  FrameRecordAt, after a nested `if ... return`) is never stamped, so its `!dbg` names line 1
+  (found 2026-11-23 by the review of the line-stamping change; main does the same).
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 
 ### The native backends emit no debug info: implement DWARF in them — 🟡 IN PROGRESS (claimed 2026-11-13, work-3, scoping first; user: "let's go back to the release items for now"; not a release blocker -- user: "I don't think we need to block release on native debug info"; plan: plan-native-dwarf.md) MAJOR (found 2026-11-07, work-3, checking bare-metal `-g` links; user: "if native backends indeed produce no debug info (double check this), then: (a) this is a MAJOR TODO to implement DWARF, (b) yes, we should reject")
