@@ -578,8 +578,14 @@ IR-gen cannot map is an internal error, never `int`.
      the checker's records had made unable to fail; each now pins what still matters (the imported-impl tests the
      interface the record keys on, the forward-alias test the registration order).  The deep alias-chain tests
      release the checker's chain a link at a time.
-   - 7a-2: a checker is required: an IR-gen entry point given none is an internal error, the checker-nil branches go,
-     with the literal-kind inference of a package variable's type (4d4) and the white-box tests of what goes.
+   - 7a-2 DONE (binate `3fa6d08a1`, 2026-11-24; user: "wait 12 minutes, then land; then continue"): a checker is
+     required: GenModule, GeneratePackage, RegisterSelfTypes and the import pre-passes stop with an internal error
+     given none (requireChecker).  The 66 checker-nil branches go, with 10 checks of checker parameters and the code
+     only a missing checker reached: the literal-kind inference of a package variable's type (4d4), an array length
+     from syntax, a receiver named from its IR type, an instance from the generic's own declaration, box's own
+     defaulting, an init in source order.  Tests that hand IR-gen syntax they build give their modules a checker that
+     has checked nothing (testModule / testInitModule).  Every module's objects unchanged (codegen-ab.sh, all three
+     corpora); VM multi-package conformance and the REPL e2e green.
    - 7b-1 DONE (binate `fe8e219d9`, 2026-11-23; user: "wait 8 minutes, then land", re-approved after a landing-rebase
      conflict with GlobalVars' index): CurrentImportPkg and the bare-name precedence (definingPkgType,
      contextPkgType, moduleNamesInScope, bareGlobalIdx's rules) go; syntax with no record is read in the module's own
@@ -591,12 +597,18 @@ IR-gen cannot map is an internal error, never `int`.
      AliasMapSnapshot's save / restore around generic instances, parameterized impls and imported CONST_EXPR
      constants (ModuleConst.ImportNames / ImportPaths), RegisterSourceFiles -- with their white-box tests.
      declImports' use() also returns a declaration's source file, which registration passes take: keep that lookup
-     where the file serves anything but the alias map.
+     where the file serves anything but the alias map.  Checked syntax still read by name keeps the overlays needed:
+     homedQualifier reads a qualifier through the import alias map (irbuild.ResolveImportPkg) for interface lookups,
+     the impl keys, instantiatedAliasTarget and resolveTypeExpr's generic instances.  First probe which alias-map
+     reads (homedQualifier, ResolveImportPkg, isImportAliasName) a checked program still reaches; those move to the
+     records, probably with 7c.
    - 7c: checked syntax with no record is an internal error (the 5c-1 review's note (a)), so only IR-gen's own syntax
      is read by its spelling; the type and value differentials go (decision 2).  Its tests, left by 7a-1: those that
      check their programs but go on after a check error (codegen's compileToLLVM / compileToLLVMOpt; irgen's
      gen_method_recv_test, gen_repl_shadow_test, gen_const_canonical_test; the vm tests) and those that hand IR-gen
      syntax the checker never saw (TestDeepAliasChainRepl, the REPL registration tests, TestRegisterIfaceStubFilled).
+     The `unsafe_index` arm of genBuiltin goes too: the checker lowers every checked call to an unchecked index
+     node (lowerUnsafeIndex), and IR-gen builds no such call, so only unchecked syntax reaches it.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
