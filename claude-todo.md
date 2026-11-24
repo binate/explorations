@@ -2872,16 +2872,12 @@ give them the value-argument builtins' wrapping and comments.
 
 ### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
-The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`
-(claude-todo-done.md): 20,000 independent declarations 0.3 s, from 6-8 s.  What is left grows with a package's
-number of declarations elsewhere:
-- a package with many functions, variables and constants in both its `.bni` and `.bn` (found 2026-11-23 by a
-  review: 4,000 of each 3.6 s, 2,000 1.0 s): the checker's resolveTopLevelVarOrder (visitVarByName, nameInList,
-  findVarDecl, appendPkgVarDecls) and checkBniVarsDefined (reportUndefinedBniVars -> bnDefinesVar ->
-  declsDefineVar: `.bni` vars x declarations); IR-gen's generatePackageInit (findInitVarDecl / Streq,
-  appendInitVarDecls, a slices.Append in buildInitBody); LLVM codegen's addExportedFuncsToSeen and
-  lookupFuncValueType; the loader's markBniExportedFuncs / markBniExportedVars (loader_util.bn: a walk of
-  merged.Decls for each `.bni` declaration);
+The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`, and a package's
+descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`
+(claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
+- a package with many functions, variables and constants in both its `.bni` and `.bn`: the checker's
+  resolveTopLevelVarOrder (visitVarByName, nameInList, findVarDecl, appendPkgVarDecls) is what is left of it (8,000
+  of each 3.3-6.9 s on a busy machine);
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by

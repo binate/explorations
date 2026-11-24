@@ -24,6 +24,21 @@ cost of 1.6 to 6 times main's time on parentheses nested 60 to 150 deep, none on
 print_exprstart_test.bn TestOpenerCommentsOfKeptParensStayInPlace, TestOpenerCommentsOfKeptParensBreak,
 TestOpenerCommentsOfDroppedParensGoBefore; print_rendermemo_test.bn TestFormatCommentedParensRenders.
 
+### Checking is quadratic in a package's number of declarations: a package's descriptor, `.bni` export marks, init body, globals and function-value triples -- DONE (binate `191656e51`..`2bf8681b9`, 2026-11-23, work-1; user: "Land it"; the rest of the entry stays open)
+
+A package with many functions, variables and constants in both its `.bni` and `.bn`: irdata's
+BuildPackageDescriptors (its output, each table's node symbols and buildPtrArray's terms built by copying), the
+loader's markBniExportedFuncs / markBniExportedVars (funcDeclIndex.firstSame, mergedVarsByName), IR-gen's package
+init (hasInitDecls stops at the first initializer; initVarDecls in a vec; buildInitBody with initVarsByName and the
+emitted names in tables), Module.GlobalVars (a vec with a by-name index, GlobalVarIndexLookup, dropped after
+ShadowReplGlobal's renames) and its five irgen sites, the checker's checkBniVarsDefined (a set of the `.bn` var
+names), and LLVM codegen's function-value triples (funcValueSet; moduleFunc, an index of m.Funcs EmitModule drops as
+it starts and ends) -- each linear in the package's declarations.  8,000 of each: 3.3-6.9 s from 7.7-16.6 s, 2.4-3.1
+times faster in each interleaved round (a busy machine).  Unchanged against the parent: cmd/bnc's LLVM IR on 3
+targets, all 2,832 corpus programs, 255 native objects of 48 of them; the review's sweep of 4,000 conformance inputs
+and the 99 tree packages found no difference.  Tests: TestFuncDeclIndexFirstOfName, TestMergedVarsByName,
+TestInitVarsByName, TestGlobalVarIndex, TestFuncValueSet, TestModuleFunc.
+
 ### Checking is quadratic in a package's number of declarations: the front end's per-declaration lists and scans -- DONE (binate `84fcd9281`, `3f5ed5e34`, 2026-11-23, work-1; the rest of the entry stays open)
 
 The parser, the loader's MergeFiles / build gate / `.bni` prepend (with its walk for each `.bni` function's `.bn`
