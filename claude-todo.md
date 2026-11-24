@@ -575,7 +575,7 @@ liveness, so it computes the same LivenessInfo again: about 0.9% of a native com
 of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
 pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
-### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🔴 OPEN (found 2026-11-23, work-3, review)
+### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🟡 IN PROGRESS (claimed 2026-11-24, work-3, measuring first; user: "go ahead") (found 2026-11-23, work-3, review)
 
 Every native backend's getOperand resolves an aggregate operand that has a data region (LookupAlloc) before its
 spill slot, so the 8-byte slot holding the region's address -- and the store that fills it at the definition
