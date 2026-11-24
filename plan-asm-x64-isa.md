@@ -379,5 +379,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   where GNU as has 66 68 06 00, and `pushw 0x10000` an error where GNU as truncates).  data16 alone on its line
   before an instruction on the next stays its 66, as in GNU as.
 
-Next: 3c (SSE3, SSSE3, SSE4.1, SSE4.2) and 3d (AES, CLMUL, SHA, GFNI, Key Locker's XMM forms, SSE4a, 3DNow! with
-femms).
+- Stage 3c (SSE3, SSSE3, SSE4.1, SSE4.2) — landed binate `c990ba4c1` (2026-11-23; user: "wait 4 minutes, then
+  land"): the table's third part (sse_table_sse4.bn, 98 forms): SSE3's addsub / hadd / hsub, lddqu and the
+  duplicating moves; SSSE3's with XMM and MMX operands; SSE4.1's blends (the variable ones with or without their
+  xmm0 written), round, dot products, extracts and inserts, pmovsx / pmovzx, ptest, movntdqa and the integer
+  operations it adds; SSE4.2's string compares and pcmpgtq.  Operand classes K (pextrd / pinsrd), L (pextrq /
+  pinsrq, REX.W) and Z (the blends' xmm0, encoded nowhere).  Clang agrees on a 55,172-line sweep of the 79 names,
+  on every [rip + x] / symbol form (ELF, Mach-O), and the MMX-register sweep of every LLVM mnemonic now differs
+  only by 3DNow!.  Its review found no wrong encoding (test gaps fixed: the shape check of Z's place and of K32 /
+  L64); two older parser gaps it noticed (notrack, a three-operand unknown mnemonic's message) are in
+  claude-todo.md.
+
+Next: 3d (AES, CLMUL, SHA, GFNI's SSE forms, Key Locker's XMM forms, SSE4a, 3DNow! with femms).
