@@ -416,5 +416,20 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   its rel32 addresses the byte after the target.  The MMX-register sweep of every LLVM mnemonic now agrees with
   clang in full.  Stage 3 is complete.
 
-Next: stage 4, VEX (asm/x64/avx): AVX, AVX2, FMA, F16C, the 2- and 3-byte VEX prefixes, 256-bit forms and gathers;
-AMD's XOP vector instructions and FMA4; the pseudo-prefixes {vex} / {vex2} / {vex3}.
+- Stage 4a (AVX floating point) — landed binate `d90ce5474` (asm/x64/optab: the tables' text reading and the
+  general operand classes, moved out of sse) and `03d7ef475` (2026-11-23; user: "yes"): asm/x64/avx, a VEX table
+  of 262 forms (the VEX forms of SSE .. SSE4.1's floating point at 128 and 256 bits; vbroadcastss / sd / f128,
+  vinsertf128, vextractf128, vperm2f128, vpermilps / pd, vmaskmovps / pd, vtestps / pd, vzeroupper, vzeroall,
+  vldmxcsr, vstmxcsr, the .s forms), vcmp's 46 predicate names, ymm0..15 (avx.YMM0 = 96) and `ymmword ptr`
+  (x64.SZ256), {vex} / {vex2} / {vex3} (asm.Assembler.X64Vex3, X64VexDone).  The table was built from clang: a
+  sweep of every name over every operand shape, decoded back into rows.  As clang: the first form that fits,
+  unless a later one reaches C5 where it does not (a commutative instruction's sources swapped, a move's store
+  form); {vex*} needs a VEX instruction right after it, so before an XOP one or a prefix written as an instruction
+  it is an error (GNU as takes both).  Kept differences: a vcmpps / pd predicate written as a symbol is never
+  swapped (clang swaps it, computing another comparison if the symbol is an asymmetric predicate); data16 / lock /
+  rep / xacquire before a VEX instruction are errors (GNU as); a YMM register is no base or index.  Seen for stage
+  5: clang reads a fourth immediate of vaddss .. vcvtsd2ss as an embedded rounding mode (EVEX), and memory of no
+  size after a YMM destination of vcvtpd2ps / vcvtpd2dq / vcvttpd2dq as 512 bits (EVEX).
+
+Next: 4b, AVX / AVX2 integer (the VEX forms of SSE2 .. SSE4.2's integer instructions, AVX2's broadcasts, permutes,
+variable shifts, masked moves, vpblendd, vinserti128 / vextracti128).
