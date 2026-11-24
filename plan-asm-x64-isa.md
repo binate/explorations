@@ -199,6 +199,23 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   operand's size defines — `dword ptr` 66 FF (m16:16, as GNU), `fword ptr` FF (m16:32, as both), `tbyte ptr`
   REX.W FF (m16:64); `ljmp` / `lcall` need a size.  Departs from clang, which drops the 66 / REX.W those
   sizes call for (and gives `ljmp [rax]` REX.W but `lcall [rax]` none).
+- Stage 4 (user, 2026-11-23): in five commits ("Five commits (Recommended)"): 4a the VEX table (asm/x64/avx), YMM
+  registers and `ymmword ptr`, AVX's floating point (the VEX forms of SSE .. SSE4.1's, 128- and 256-bit; vcmp with
+  its 32 predicate names; vbroadcastss / sd / f128, vinsertf128, vextractf128, vperm2f128, vpermilps / pd,
+  vmaskmovps / pd, vtestps / pd, vzeroupper, vzeroall, vldmxcsr, vstmxcsr; the .s forms) and {vex} / {vex2} /
+  {vex3}; 4b AVX / AVX2 integer (the VEX forms of SSE2 .. SSE4.2's, AVX2's broadcasts, permutes, variable shifts,
+  masked moves, vpblendd, vinserti128 / vextracti128); 4c VSIB memory operands (an XMM / YMM index, which stage 5
+  reuses) and the eight gathers; 4d FMA3, F16C, the VEX crypto forms (VAES, VPCLMULQDQ with its names, GFNI,
+  SHA512, SM3, SM4) and AVX-VNNI / IFMA / NE-CONVERT / VNNI-INT8 / INT16; 4e AMD's FMA4 and XOP vector
+  instructions (vpcom's predicate names).  Scope from the mnemonic sweep (every LLVM v-name with XMM / YMM
+  operands, 242,511 lines): 473 names clang encodes VEX or XOP (7 of them, AVX-VNNI / IFMA and vcvtneps2bf16, only
+  after {vex}); the 406 EVEX-only names are stage 5's.  Encoding as clang: C5 where it holds the fields, a
+  commutative instruction's two sources swapped to reach it (`vaddps xmm0, xmm1, xmm8` is c5 b8 58 c1; GNU as
+  gives c4 c1 70 58 c0), a move between registers in its store form where that reaches it (both).  The text-table
+  helpers sse's encoder uses (finding a mnemonic's lines, tokens, hex) move into a shared leaf package that sse,
+  avx and later avx512 import ("Shared leaf package (Recommended)").  A gather whose mask, index and destination
+  registers are not all different is an error ("Reject (Recommended)"; #UD at run time; clang and GNU as warn), as
+  the string-operand decision of 2026-11-14.
 
 ## Progress
 
