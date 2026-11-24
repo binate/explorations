@@ -1,3 +1,36 @@
+### bnfmt moved a comment after a `...` or in parentheses around an expression out of its place — DONE (binate `7e15b5fc4`, 2026-11-24, temp-4; user: "wait 8 minutes, then land; then work on the open LOW entry" for the last part) (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
+`__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
+`664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of
+parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`; those after the `(` of parentheses bnfmt
+keeps in binate `303dc49d1`; a slice's low bound that does not fit after its `[` in binate `fd4f3a7fd`;
+a comment right after a variadic parameter's `...` in binate `7e15b5fc4`)
+
+The last gap with no printer of its own: a comment right after a variadic parameter's `...`, in a signature or a
+function value.  `func f(a int, b ... /* d */ int)` printed `b /* d */ ...int`, and `*func(int, ... /* c */ int)`
+printed `*func(int, /* c */ ...int)`; a line comment there was left for the gap after the parameter.
+Fixed: the syntax tree keeps no position for the `...`, but a variadic element type starts right after it, so the
+comments right before the type (token.Comment.Before) are those after the `...`, and their After is its position
+(variadicDots, print_typegaps.bn).  printDotsType prints them after the `...`, keyed by the type's start, and a line
+comment there continues the type on a line two tabs in; a parameter's inline gap ends at the `...` (printParamDecl)
+and a function value's item starts there (typeItem), so neither takes them.  Of 222 generated probes of comments
+around a `...` in 27 contexts, bnfmt before the fix moved a comment in 193 and the fix in none.  A long type or block
+comment after the `...` can now take a line past the cap, as one after `readonly` or `*` already could; that is
+filed under "bnfmt does not wrap a type inside a parameter list, and a parameter whose type keeps comments runs past
+the cap" in claude-todo.md.
+
+A line comment such a gap left pending in a signature set the signature hold (claimHeldGap), which could delete a
+later comment ("bnfmt deleted a comment in a signature's result type"), until binate `57a62dc79` removed the hold.
+With the `...` gap claimed, no gap is known to leave its comments for a later one.  claimInlineGap claims a gap where
+a newline would end the construct, so a line comment, or a block comment over lines, there makes the source fail to
+parse (`func g(a int) // y` / `(int, bool) {}` does).  A probe of a line and a block comment after each token of a
+program with signatures, interface methods, function values, generic declarations, var and const specs, composites,
+builtins, slices, `if` / `for` / `switch` heads and chains, with bnfmt built from binate `7e15b5fc4`, moved no
+comment across more than one token, as tests pin (`cast(int /* c */, y)` printing `cast(int, /* c */ y)`, and
+`import // e` / `"pkg/c"` printing the comment above the import), except inside a type switch's `.(type)` (filed as
+"bnfmt prints a comment inside a type switch's `.(type)` at the start of its body" in claude-todo.md).
+emitTrailingCommentBefore stops at a pending comment on an earlier line, one no gap claimed; the probe found such
+comments only inside `.(type)`.
+
 ### Native: a region-owning aggregate value's pointer slot was never read, and its store at the definition wasted — DONE (binate `6acd50b71`, 2026-11-24, work-3; user: "go ahead")
 
 An aggregate value with bytes of its own (a data region, or the slot a call writes its result into) now has no

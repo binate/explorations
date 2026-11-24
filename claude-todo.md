@@ -3019,28 +3019,6 @@ three blank lines there, which a second format makes one.  So neither is idempot
 caller lays it out (printDecls, the block loop), its comments going on lines of their own, or keep it as written by
 recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted twice.
 
-### bnfmt moves a comment after a `...` or in parentheses around an expression out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
-`__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
-`664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of
-parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`; those after the `(` of parentheses bnfmt
-keeps in binate `303dc49d1`; a slice's low bound that does not fit after its `[` in binate `fd4f3a7fd`)
-
-One gap still has no printer of its own, so a comment in it is printed by a neighbouring gap, or after the
-statement, out of its place.  It can claim its comments by position now that a comment records the tokens around it
-(token.Comment After / Before), or by positions the parser records where it drops a gap's end, as a var or const
-spec's ast.Header does (Binder, Assign):
-- right after a variadic parameter's `...`, in a signature or a function value: `func f(a int, b ... /* d */ int)`
-  prints `b /* d */ ...int`, and `*func(int, ... /* c */ int)` prints `*func(int, /* c */ ...int)` (bnfmt
-  `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types).
-
-A line comment such a gap left pending in a signature set the signature hold (claimHeldGap), which could delete a
-later comment (claude-todo-done.md, "bnfmt deleted a comment in a signature's result type"), until binate
-`57a62dc79` removed the hold; with it made to panic, no probe of a comment after each token of 296 signatures, nor
-any corpus file, reached it once the strings of a run and the single results' parentheses printed their comments in
-place.  claimInlineGap's leaving a gap's comments for a later gap still has a trigger (the `...` gap above leaves its
-line comment for the gap after the parameter); emitTrailingCommentBefore's stopping at a comment on an earlier line
-has not been probed.
-
 ### bnfmt splits a long string literal inside a multi-byte character — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the string run comments fix; pre-existing, main the same)
 
 `x := "a` + 60 `é` + `"` prints the literal as a run split at a byte budget (splitStringLit, stringSplitPoint in
@@ -3113,7 +3091,7 @@ name> /* <a 40-character comment> */ {` prints 133 wide (before binate `b8a91ad0
 method, 90 wide), and `type <an 80-character name> /* <…> */ struct {` 142 wide (bnfmt `bnc-0.0.17-pre3` moves the
 comment, 99 wide).  A line break there would end the declaration, so such a line fits only if the comment moves.
 
-### bnfmt does not wrap a type inside a parameter list, and a parameter whose type keeps comments runs past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; pre-existing without comments, since binate `6d97d7e91` with them)
+### bnfmt does not wrap a type inside a parameter list, and a parameter whose type keeps comments runs past the cap — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4) 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; pre-existing without comments, since binate `6d97d7e91` with them)
 
 A parameter-list item is rendered once, from column 0, and goes on its line whole, so a type in it that could wrap
 does not: `func f(<n×75> Box[Aaaa, p.Bbbb], yyyyyyyyyyyy int) (int, bool) {}` puts `<n×75> Box[Aaaa, p.Bbbb],` on
@@ -3123,6 +3101,24 @@ comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` prints its
 own 109 wide, where bnfmt before `6d97d7e91` moved the comments after the `,` and stayed in the cap (5 files of the
 review's sweep).  Breaking such a type needs the item rendered at its continuation column, where its lists and
 brackets can wrap (after a type-argument list's `[` or `,`, after an array's `[`).
+
+The comments after a `...`, a `readonly` or a `*` in a parameter list go the same way, and a type after a line
+comment there reserves no room for what follows it on its line.  `func f(x ... // d` / `*func(<a×41>, <b×42>)
+int) {}` prints the type on a continuation line 102 wide (bnfmt before binate `7e15b5fc4`, which moved the
+comment after the parameter, 60; `readonly` in place of the `...`, 102 on main too); `var v *func(int, ... /*
+<c×89> */ int)` prints its second line 106 wide (97 before; `*` in place of the `...`, 103 on main); and `func f(a
+int, b ... /* <c×79> */ int) {}` 101 (100 before; `readonly` and `*[]int` in place of `...` and `int`, 109 on
+main).  A break after the block comment, or inside the type, keeps them in the cap.
+
+### bnfmt prints a comment inside a type switch's `.(type)` at the start of its body — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, a probe of a comment after each token, closing the comment-gap entry; pre-existing, bnfmt `bnc-0.0.17` the same)
+
+`switch u := z. /* a */ (/* b */ type /* c */) {` prints `switch u := z.(type) {` with `/* a */`, `/* b */` and
+`/* c */` each on a line of its own at the start of the body, and a line comment there (`switch z.(type // d` /
+`) {`) goes there too, with an empty line after it.  printTypeSwitch (print_switch.bn) claims the comments of the
+head up to the `.` and those after the `)`, but none inside `.(type)`, so they stay pending until the
+body flushes them (its doc says so).  Fix: claim them in the head, as a type assertion's `.(T)` does
+(`y := z. /* a */ (/* b */ T /* c */)` prints `z.(/* a */ /* b */ T /* c */)`, and a line comment after its `(`
+continues the type on a line two tabs in).
 
 ### bnfmt lets an array length run past the cap by the `]` and element type after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
 
