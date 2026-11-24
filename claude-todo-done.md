@@ -1,3 +1,14 @@
+### Checking is quadratic in a package's number of declarations: the front end's per-declaration lists and scans -- DONE (binate `84fcd9281`, `3f5ed5e34`, 2026-11-23, work-1; the rest of the entry stays open)
+
+The parser, the loader's MergeFiles / build gate / `.bni` prepend (with its walk for each `.bni` function's `.bn`
+definition, now funcDeclIndex), Scope.Define (a doubling backing slice, appendSym), checkDuplicateDecls /
+checkBniDuplicateDecls (declNameFirsts), checkTypeRedeclaration (the first site of each name; the forward names a
+set built once), collectDeclNames, and the batch's variables and functions by name (VarIndex / FuncIndex, beside
+the types' TypeIndex) -- each linear in a package's declarations.  20,000 declarations: independent structs 0.28-0.38
+s from 6.2-8.4 s; a chain of named types 0.42-0.55 s from 6.1-7.9 s; a chain of aliases 0.34-0.46 s from 7.8-9.9 s.
+The review's sweep of all 4,000 conformance inputs: byte-identical.  Tests: TestFuncDeclIndex, TestDeclNameFirsts,
+TestBatchDeclsByName.
+
 ### parser: `a, b++` keeps only `a++` (bnc runs it, bnfmt deletes the `b`), and `a, b += 1` crashes IR-gen — DONE (binate `9ce0aefb3`, 2026-11-23, temp-4; user: "Next, its own commit (Recommended)", landed on "wait 12 minutes, then land") (MAJOR: the compiler accepts invalid code with part of it dropped, and crashes on the compound form; found 2026-11-23, temp-4, the review of the for-header comma fix; pre-existing, bnc-0.0.17 and main alike)
 
 finishSimpleStmtInner (pkg/binate/parser/parse_stmt.bn) builds a `++` / `--` statement from the first expression of

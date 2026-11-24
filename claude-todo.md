@@ -2864,28 +2864,30 @@ give them the value-argument builtins' wrapping and comments.
 
 ### Checking is quadratic in a package's number of declarations — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-05, work-1, deep-nesting memoization stage)
 
-With each declaration's type walks kept across a batch (the deep-nesting memoization stage, landed 2026-11-06), what
-is still superlinear in a package with many declarations grows with their number, not their nesting: bnc `--emit-llvm`
-takes 0.61 billion instructions for 1024 unrelated struct declarations and 2.43 billion for 4000.  `sample` of
-4000-declaration programs: loader.MergeFiles; the checker's checkTypeRedeclaration, checkDuplicateDecls,
-preRegisterTypeNames and defineType (Scope.Define appends each symbol with slices.Append, which copies); and
-slices.Append of declaration lists.  IR-gen's pending named types and type aliases became a set and an index in binate
-`b6cb84aee`.  The by-name resolution (binate `f55523b7e`) scans the same way: findBniTypeDecl / findBniVarDecl /
-findConstDecl search the declarations by name (a `.bni` constant's declared type `int` searches them all), and
-ConstResolved / ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are
-appended by copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni`
-variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  The batch methods stage (binate
-`2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way, and the LLVM backend's addStructDef
-looks a struct definition up by name in a list (irutil.Streq), quadratic in a program's struct types: most of the 40
-to 110 s a 20,000-link method chain takes at `--emit-llvm`.  The batch's own lists are searched the same way
-(batchTypeDecl, batchTypeDeclOf, batchTypeDeclNamed: findDeclIn over b.Types; findDeclIn over b.Vars / b.Funcs in
-pushReadFrom).  Fix: index what these scan by name (a Scope already indexes its names past a threshold), and build
-the lists with vec.
-The same pattern, found 2026-11-15 (work-1, review of the helper-naming stage): irbuild's pending helper lists
-(PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName and slices.Append) and LLVM
-codegen's funcRetTypes (emit.bn, slices.Append per function).  A ring of named managed-slices with a drop site per
-type compiles in 0.39 s at 2,000 types, 3.8 s at 8,000 and 14.7 s at 16,000 (user), mostly in the front end's lists
-above and ~5% in the pending helper lists.
+The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`
+(claude-todo-done.md): 20,000 independent declarations 0.3 s, from 6-8 s.  What is left grows with a package's
+number of declarations elsewhere:
+- a package with many functions, variables and constants in both its `.bni` and `.bn` (found 2026-11-23 by a
+  review: 4,000 of each 3.6 s, 2,000 1.0 s): the checker's resolveTopLevelVarOrder (visitVarByName, nameInList,
+  findVarDecl, appendPkgVarDecls) and checkBniVarsDefined (reportUndefinedBniVars -> bnDefinesVar ->
+  declsDefineVar: `.bni` vars x declarations); IR-gen's generatePackageInit (findInitVarDecl / Streq,
+  appendInitVarDecls, a slices.Append in buildInitBody); LLVM codegen's addExportedFuncsToSeen and
+  lookupFuncValueType; the loader's markBniExportedFuncs / markBniExportedVars (loader_util.bn: a walk of
+  merged.Decls for each `.bni` declaration);
+- the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
+  declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
+  ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
+  copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni` variable
+  chain is 6,000 long, short of where the old recursion crashed (~12,000); the batch's on-demand lists
+  (VarsChecking, FuncsDefined, FuncsDefining: declInList over slices.Append) the same way;
+- the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way,
+  and the LLVM backend's addStructDef looks a struct definition up by name in a list (irutil.Streq), quadratic in a
+  program's struct types: most of the 40 to 110 s a 20,000-link method chain takes at `--emit-llvm`;
+- irbuild's pending helper lists (PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName
+  and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
+  managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
+  before the front-end step; ~5% in the pending helper lists).
+Fix: index what these scan by name, and build the lists with vec.
 
 ### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
