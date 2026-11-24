@@ -1,3 +1,29 @@
+### bnfmt moved a comment right after a `(` it keeps out of its place — DONE (binate `303dc49d1`, 2026-11-23, temp-4; user: "Start counts the `(` (Recommended)", "In place, break after `(`", "Start at a written `(` (Recommended)"; on the review, "Next commit (Recommended)" for the slice bound and "Land as is (Recommended)" for the per-paren cost; landed on "yes, go ahead") (part of "bnfmt moves a comment after a `...` or in parentheses around an expression out of its place"; seen 2026-11-08)
+
+Right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps only
+the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen 2026-11-08
+working on the declarations' gaps); a line comment moves too (`a * ( // c` / `b + c)` prints `a * // c` / `(b +
+c)`), and at a statement's start the comment goes on a line of its own above it.  Every gap before an expression,
+and a statement's leading comments, end at its first token other than `(` (exprStartPos), so none is left for the
+`(`.  Fix (user, 2026-11-22: "Start counts the `(` (Recommended)", and for a line comment "In place, break after
+`(`"; refined, as a dropped `(`'s line comment would otherwise change: "Start at a written `(` (Recommended)"):
+exprStartPos returns the `(` (openAround) of the first parenthesized node on the expression's left edge that bnfmt
+prints in parentheses, decided with the printer's own tests (binOperandParens, postfixHeadParens, dotHeadParens,
+printComposite's), the gaps before an operator's operand, a unary's operand and a condition saying so; what writes
+the `(` writes the comments after it, breaking after a line comment as a call's `(` does, and a dropped `(`'s stay
+with the gap before, as now.
+Fixed: the gap before an expression ends at the first token bnfmt writes: the `(` of the first node at its left edge
+that the source parenthesizes and bnfmt prints in parentheses (keptStart, print_exprstart.bn), decided with the
+printer's own tests; what writes a kept `(` writes the comments after it (writeParenOpen), a line comment breaking
+to a continuation line two tabs in.  The review found that deep left-nested parentheses with such comments took
+about d^3 renderings, as operandAt measured an operand from a fresh line, where its comment always fits, while the
+print breaks; the same commit measures it from its column (6,269 renderings 40 deep before, 476 after, 462 with no
+comments).  A `*` before an array literal parenthesizes its operand only for the comments before the literal's kept
+`(`, so `*(/* c */ [2]int{1})[0]` keeps its comment.  Left: the slice bound (in the parent entry), and a per-paren
+cost of 1.6 to 6 times main's time on parentheses nested 60 to 150 deep, none on real files.  Tests:
+print_exprstart_test.bn TestOpenerCommentsOfKeptParensStayInPlace, TestOpenerCommentsOfKeptParensBreak,
+TestOpenerCommentsOfDroppedParensGoBefore; print_rendermemo_test.bn TestFormatCommentedParensRenders.
+
 ### Checking is quadratic in a package's number of declarations: the front end's per-declaration lists and scans -- DONE (binate `84fcd9281`, `3f5ed5e34`, 2026-11-23, work-1; the rest of the entry stays open)
 
 The parser, the loader's MergeFiles / build gate / `.bni` prepend (with its walk for each `.bni` function's `.bn`

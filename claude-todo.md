@@ -3010,24 +3010,20 @@ recording its keyword on the DECL_GROUP node; tests: goldens for both, formatted
 ### bnfmt moves a comment after a `...` or in parentheses around an expression out of its place — 🟡 IN PROGRESS (claimed 2026-11-07, temp-4) 🟢 LOW (found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
 `664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of
-parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`)
+parentheses bnfmt keeps in binate `1027f850c`, and around a composite literal in a condition in binate `7e855c2c1`; those after the `(` of parentheses bnfmt
+keeps in binate `303dc49d1`)
 
-Two gaps still have no printer of their own, so a comment in one is printed by a neighbouring gap, or after the
-statement, out of its place.  Each can claim its comments by position now that a comment records the tokens around
-it (token.Comment After / Before), or by positions the parser records where it drops a gap's end, as a var or const
+Next, before the `...` gap (user, 2026-11-23: "Next commit (Recommended)"): a slice's low bound that does not fit on
+its line.  printSlice breaks after the `[` only for the comments of the `[` gap (writeSliceOpenGap), so `x = <41
+a's>[(-<45 c's>).f:y]` prints 108 wide, as before binate `303dc49d1`; since that commit a comment after the bound's
+`(` (`[(/* k2 */ -c…).f:y]`) stays there and no longer makes the line break, 107 wide where it printed 47 and 65 (13
+of that review's 300 generated files get a line past the cap, 12 lose one).  Fix: break after the `[` when the low
+bound does not fit, comments or not.
+
+One gap still has no printer of its own, so a comment in it is printed by a neighbouring gap, or after the
+statement, out of its place.  It can claim its comments by position now that a comment records the tokens around it
+(token.Comment After / Before), or by positions the parser records where it drops a gap's end, as a var or const
 spec's ast.Header does (Binder, Assign):
-- right after a `(` the source keeps around an expression, whose position the parser does not record (it keeps
-  only the Parenthesized flag): `x = (/* c */ a + b) * c` prints `x = /* c */ (a + b) * c`, stable after (seen
-  2026-11-08 working on the declarations' gaps); a line comment moves too (`a * ( // c` / `b + c)` prints `a *
-  // c` / `(b + c)`), and at a statement's start the comment goes on a line of its own above it.  Every gap
-  before an expression, and a statement's leading comments, end at its first token other than `(`
-  (exprStartPos), so none is left for the `(`.  Fix (user, 2026-11-22: "Start counts the `(` (Recommended)",
-  and for a line comment "In place, break after `(`"; refined, as a dropped `(`'s line comment would otherwise
-  change: "Start at a written `(` (Recommended)"): exprStartPos returns the `(` (openAround) of the first
-  parenthesized node on the expression's left edge that bnfmt prints in parentheses, decided with the printer's
-  own tests (binOperandParens, postfixHeadParens, dotHeadParens, printComposite's), the gaps before an
-  operator's operand, a unary's operand and a condition saying so; what writes the `(` writes the comments after
-  it, breaking after a line comment as a call's `(` does, and a dropped `(`'s stay with the gap before, as now;
 - right after a variadic parameter's `...`, in a signature or a function value: `func f(a int, b ... /* d */ int)`
   prints `b /* d */ ...int`, and `*func(int, ... /* c */ int)` prints `*func(int, /* c */ ...int)` (bnfmt
   `bnc-0.0.17-pre3` and the tree's; seen 2026-11-14 in the review of the comments inside types).
