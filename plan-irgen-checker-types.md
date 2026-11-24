@@ -580,8 +580,18 @@ IR-gen cannot map is an internal error, never `int`.
      release the checker's chain a link at a time.
    - 7a-2: a checker is required: an IR-gen entry point given none is an internal error, the checker-nil branches go,
      with the literal-kind inference of a package variable's type (4d4) and the white-box tests of what goes.
-   - 7b: CurrentImportPkg, the import overlays and the bare-name precedence, with their white-box tests (the archived
-     draft, rebased onto 7a).
+   - 7b-1 DONE (binate `fe8e219d9`, 2026-11-23; user: "wait 8 minutes, then land", re-approved after a landing-rebase
+     conflict with GlobalVars' index): CurrentImportPkg and the bare-name precedence (definingPkgType,
+     contextPkgType, moduleNamesInScope, bareGlobalIdx's rules) go; syntax with no record is read in the module's own
+     package.  The archived draft, rebased; taken before 7a-2, since the checker-less tests of what it deletes went
+     with it.  Every module's objects unchanged (codegen-ab.sh, all three corpora); VM multi-package conformance and
+     the REPL e2e green.  Its review found no behaviour change (a probe of a generic body naming its own package's
+     names beside same-named ones of the consumer: same output, no differential note).
+   - 7b-2: the import overlays -- pushFileImports / overlayFileImports and their cache, declImports,
+     AliasMapSnapshot's save / restore around generic instances, parameterized impls and imported CONST_EXPR
+     constants (ModuleConst.ImportNames / ImportPaths), RegisterSourceFiles -- with their white-box tests.
+     declImports' use() also returns a declaration's source file, which registration passes take: keep that lookup
+     where the file serves anything but the alias map.
    - 7c: checked syntax with no record is an internal error (the 5c-1 review's note (a)), so only IR-gen's own syntax
      is read by its spelling; the type and value differentials go (decision 2).  Its tests, left by 7a-1: those that
      check their programs but go on after a check error (codegen's compileToLLVM / compileToLLVMOpt; irgen's
