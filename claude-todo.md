@@ -2877,7 +2877,11 @@ descriptor, `.bni` export marks, init body, globals and function-value triples s
 (claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
 - a package with many functions, variables and constants in both its `.bni` and `.bn`: the checker's
   resolveTopLevelVarOrder (visitVarByName, nameInList, findVarDecl, appendPkgVarDecls) is what is left of it (8,000
-  of each 3.3-6.9 s on a busy machine);
+  of each 3.3-6.9 s on a busy machine; independent `var vI int = I`: 4,000 0.25 s, 8,000 0.74 s, 16,000 3.1 s).
+  Its depth-first walk also recurses once per link of a chain of initializer reads (`var v0 int = v1 + 1`, ...),
+  so bnc crashes (SIGSEGV, stack overflow in collectVarDepsIn) at 8,000 links on an 8 MB stack, 4,000 on a 4 MB
+  one (6,000 compile in 0.7 s; 8,000 compile with a 64 MB stack); the deep-nesting stages' 20,000-deep variable
+  chains are type-level (`var A0 [len(A1)]int8`) and never reach it (found 2026-11-23, work-1, measuring it);
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
