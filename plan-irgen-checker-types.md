@@ -621,6 +621,12 @@ IR-gen cannot map is an internal error, never `int`.
      syntax the checker never saw (TestDeepAliasChainRepl, the REPL registration tests, TestRegisterIfaceStubFilled).
      The `unsafe_index` arm of genBuiltin goes too: the checker lowers every checked call to an unchecked index
      node (lowerUnsafeIndex), and IR-gen builds no such call, so only unchecked syntax reaches it.
+     - 7c-1 DONE (binate `3a8d03ffb`, 2026-11-24; user: "yes, go ahead; then continue"): every test that
+       IR-generates a program checked it first but went on after a check error now stops on one -- codegen's
+       compileToLLVM / compileToLLVMOpt (checkedFile), the VM's, interp's and the REPL's helpers (a mustCheck
+       beside mustParse; interp's mustCheckPackage), the three irgen tests (mustCheck).  A probe in requireChecker
+       over the IR-producing packages' tests found five programs that did not check (four in codegen, one in
+       the VM); each is fixed to say what it meant.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
