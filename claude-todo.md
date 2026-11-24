@@ -2894,7 +2894,9 @@ descriptor, `.bni` export marks, init body, globals and function-value triples s
 - irbuild's pending helper lists (PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName
   and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
   managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
-  before the front-end step; ~5% in the pending helper lists).
+  before the front-end step; ~5% in the pending helper lists);
+- ir.Module.AddGlobal (ir/ir.bn, slices.Append per global; found 2026-11-23 by the review of the init-order walk): a
+  20,000-link chain of typed variables 3.55 s at `--emit-llvm` against 0.68 s at 8,000, nearly all of it there.
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🔴 OPEN 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
@@ -2908,6 +2910,16 @@ of stack each.  The deep-nesting stage 3a walk (check_by_name_vars.bn) resolves 
 declared type or a function.  Fix (needs investigation): resolve what an inferred-type variable's initializer reads
 ahead, in the walk, before checking it.  No test yet: a deep unit test would crash the package's test binary; a
 generated conformance chain (`.xfail.all`) would do.
+
+### A large expression is checked in time quadratic in its size — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-23, work-1, review of the init-order walk; pre-existing)
+
+A composite literal of n integer constants checks in 0.52 s at n = 20,000 and 2.04 s at 40,000, in a function body
+as well as in an initializer; where is not pinned down yet.  In a package variable's initializer the initialization
+order adds more: collectVarDepsIn (check/check_var_resolve.bn, and check_var_resolve_iife.bn's walks of a literal's
+body) returns an initializer's reads as a slice copied on each append, so `var a [40000]int = [40000]int{w0, ...}`
+with 40,000 variables wi took 4.97 s against 2.59 s for the same literal in a function (`sample`: 620 of 803 check
+samples in collectVarDepsIn).  Fix: find the literal's quadratic step (a profile of the 40,000 case); collect the
+reads into a vec (the deps threaded through ~35 collectVarDepsIn sites, and check_var_free_reads.bn's caller).
 
 ### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
