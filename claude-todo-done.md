@@ -1,3 +1,12 @@
+### perf/frame-sizes.sh left out a prologue's pushes, so it overstated native frames against LLVM's — DONE (binate `e921ee302`, 2026-11-24, work-3; user: "go ahead")
+
+It now prints the stack a prologue takes -- adjustments plus pushes (aarch64 `stp`/`str` to `[sp, #-N]!`, x86-64
+`push`, arm32 `push`/`vpush`) -- with both parts, scanning from the first of them to the next branch, call or
+return (LLVM may test or return before its prologue), skipping LLVM's `__shim.` wrappers, following a register-held
+frame size (large native frames) or marking it `?`.  The review of the first version found the shrink-wrapped
+prologues read as 0 (about 300 of 3,167 LLVM functions in check) and the shims matched first.  parsePrimaryExpr at
+-O2, native / LLVM: aarch64 768 / 1440, x86-64 776 / 984, arm32 488 / 504.
+
 ### native/common.bni was near its 1000-line cap: the in-place frame analyses moved to a package of their own — DONE (binate `8602ab900`, `9f2fb44f6`, 2026-11-23, work-3; user: "then maybe split native/common.bni before taking on the other items")
 
 pkg/binate/native/inplace holds AggLoadElision / AggLoadElider / AGG_LOAD_*, CallResultSlots, ReturnedCallResults,
