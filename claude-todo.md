@@ -575,6 +575,16 @@ liveness, so it computes the same LivenessInfo again: about 0.9% of a native com
 of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
 pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
 
+### Native arm32: every spill slot is 8 bytes, though most arm32 values are 4 — 🔴 OPEN (found 2026-11-24, work-3, measuring the write-only pointer slots)
+
+Every native spill slot is 8 bytes, on every target (native/common's packSpillSlots packs 8-byte slots, and
+PlanFrame's walk starts each unshared slot at 8), but most arm32 values -- pointers, ints, aggregates' addresses --
+are 4 bytes.  arm32's shared spill area at -O2 is 70,360 bytes of irgen's frames against aarch64's 31,728, and
+116,864 of check's against 48,544 (measured 2026-11-24; arm32 also spills more, having fewer registers).  Giving a
+4-byte value a 4-byte slot -- packSpillSlots packing two sizes, the walk sizing by the value, the arm32 emitters
+storing and loading 4 bytes, 8-byte values (an int64 pair, a float64) keeping 8-aligned slots -- could save up to
+half of it.  Measure the share of 4-byte values first.
+
 ### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🟡 IN PROGRESS (claimed 2026-11-24, work-3, measuring first; user: "go ahead") (found 2026-11-23, work-3, review)
 
 Every native backend's getOperand resolves an aggregate operand that has a data region (LookupAlloc) before its
