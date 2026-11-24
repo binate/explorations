@@ -597,16 +597,6 @@ instructions of prologue per such parameter; check every NeedSpill of a paramete
 reloads take only scalars).  Found reviewing the region-owner slots (values, 2026-11-24), which leave parameters as
 they were.
 
-### Native: a region-owning aggregate value's pointer slot is never read, and its store at the definition is wasted — 🟡 IN PROGRESS (claimed 2026-11-24, work-3, measuring first; user: "go ahead") (found 2026-11-23, work-3, review)
-
-Every native backend's getOperand resolves an aggregate operand that has a data region (LookupAlloc) before its
-spill slot, so the 8-byte slot holding the region's address -- and the store that fills it at the definition
-(handleResult's eager store) -- is never read; the one other reader is x64's indirect-call target stash, which
-keeps an aggregate-returning call's target in the call's own slot (x64_call_indirect.bn, x64_iface.bn).  Found by
-the review of the pointer-slot sharing (which shares these slots, 2026-11-23).  Dropping the slot and the store for
-values with a region would save more frame bytes than sharing them and a store per value; the x64 stash would need
-a slot of its own.  Measure how many of the shared pointer slots belong to values with regions first.
-
 ### Native frames: a call's copies of its by-reference struct arguments are never shared — 🔴 OPEN (plan-native-frame-slots.md steps 1-5 done, claude-todo-done.md; found 2026-11-10, work-3; measured 2026-11-22 at 5-8% of the native frame bytes, see the plan's Progress)
 
 After the plan's five steps parsePrimaryExpr's native frame is 1,776 bytes at -O0 and 1,824 at -O2 on aarch64 (x64

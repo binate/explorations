@@ -1,3 +1,16 @@
+### Native: a region-owning aggregate value's pointer slot was never read, and its store at the definition wasted — DONE (binate `6acd50b71`, 2026-11-24, work-3; user: "go ahead")
+
+An aggregate value with bytes of its own (a data region, or the slot a call writes its result into) now has no
+spill slot (needsSpillSlot), and handleResult stores nothing for a result with a data region; an indirect call
+keeps its slot, where x64 keeps the call's target, used only by the call (a one-position span).  PlanFrame decides
+where each aggregate value's bytes live before it packs the slots (planRegions, regionPlan).  The review found that
+a direct call stored into the local kept in the caller's buffer had neither a region nor a slot (conformance 1624;
+arm32 irgen failed to compile): planRegions now makes that decision for placeCallResults.  Total stack at -O2,
+before / after: aarch64 parser 76,992 / 76,320, irgen 297,792 / 291,104, check 556,144 / 546,016; x86-64 75,208 /
+74,216, 282,576 / 275,616, 531,560 / 520,568; arm32 58,456 / 57,480, 255,912 / 248,664, 465,184 / 454,272 (0.9-2.8%
+less).  Region owners were about a quarter of the shared spill area.  Follow-ups filed: aggregate parameters' dead
+slots, arm32's 8-byte spill slots.
+
 ### bnfmt let a slice's low bound that did not fit after its `[` run past the cap — DONE (binate `fd4f3a7fd`, 2026-11-23, temp-4; user: "Next commit (Recommended)", then "let's try to reduce the cost" and "Land the exact version"; landed on "yes, go ahead") (LOW; part of "bnfmt moves a comment after a `...` or in parentheses around an expression out of its place"; found 2026-11-22, the review of the kept-`(` change)
 
 A slice's low bound that does not fit on its line.  printSlice breaks after the `[` only for the comments of the `[`
