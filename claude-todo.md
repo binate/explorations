@@ -2964,6 +2964,14 @@ comments inside types (binate `6d97d7e91`) made the function values about 1.7x s
 conformance/spec/07-types/305_type_depth_nested_syntax.bn nests both 1024 deep, so bnfmt does not finish it
 (conformance/ is outside the bnfmt hygiene check).  Where the time goes is not looked at yet.
 
+### bnfmt's time grows about as d^5 with operands in parentheses nested at the right of operators — 🔴 OPEN 🟢 LOW (found 2026-11-23, temp-4, timing the kept-`(` comment change; pre-existing, main does the same)
+
+`x = a0 * (b0 + a1 * (b1 + … (b29 + z)))`, each level an operand in parentheses at the right of the one before,
+formats in time that grows about as d^5 with main's bnfmt (built from binate `9ce0aefb3`): 0.01 s 10 deep, 0.65 s 20
+deep, 2.3 s 25 deep, 6.6 s 30 deep; with a block comment after each `(` about three times that (2.0 s 20 deep, 7.0 s
+25 deep, 19.6 s 30 deep, past 60 s 60 deep).  The same nest at the left of each operator (`((a0 + b0) * c0 + b1) *
+c1 …`) formats 60 deep in 0.01 s.  Real code does not nest this deep.  Where the time goes is not looked at yet.
+
 ### bnfmt: what the non-idempotence work left open: a right-hand side's type arguments, a one-character last part — 🔴 OPEN 🟢 LOW (found 2026-10-23, temp-4, landing binate `ae0e0a63c`; pre-existing)
 
 pkg/binate/check/check_instances.bn's right-hand side `table.NewTable[…](…)` will wrap its type arguments inline (`…,
