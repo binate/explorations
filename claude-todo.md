@@ -7,6 +7,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### bnfmt writes a trailing comma in a function type's result list, which does not parse — 🔴 OPEN (MAJOR: `bnfmt -w` turns a valid file into one that does not parse; found 2026-11-24, temp-4, review of the parameter-list width change; pre-existing, bnfmt `bnc-0.0.17` and main the same)
+
+`var v *func(int) (Aaaa, <90 B's> /* c */)` formats to `var v *func(int) (Aaaa,` / `<90 B's>,` / `/* c */` / `)`,
+and the parser rejects the `,` before the `)` (`expected type`): the grammar permits a trailing comma in arguments,
+parameters, type arguments and parameters, composite elements and annotations, not in a result list.  printResults
+(print_decl.bn) prints a function type's results through printTypeListWrapped, which tells printStrList the list
+takes a trailing comma, so writeCloserGap puts a comment before the `)` that does not fit on the last result's line
+after a `,`, and the `)` on a line of its own.  A signature's results already print as a list that takes none
+(printSigResults).  Fix: printTypeListWrapped takes whether its list takes a trailing comma, false for results; a
+comment before their `)` then stays on the line, as a signature's does.  In the 2,700 generated files of the review
+that found it, main's output fails to parse in 1, and with the parameter-list width change (not yet landed) in 8.
+
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
