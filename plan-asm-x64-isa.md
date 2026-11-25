@@ -442,5 +442,14 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   vpbroadcastb .. q from a general register, vpermq / vpermpd with three operands, and vmovd between XMM
   registers.
 
-Next: 4c, VSIB memory operands (an XMM / YMM index, reused by stage 5) and the eight gathers; a gather whose mask,
-index and destination are not all different is an error (user 2026-11-23).
+- Stage 4c (VSIB and the gathers) — landed binate `67fafae5f` (2026-11-24; user: "wait 4 minutes, then go ahead"):
+  x64.Operand.Vsib (a vector index's size; Index its number), x64.MemVsib, x64.IsVsib, x64.EmitModRMVsib; isMem /
+  IsMem are false for a VSIB operand and emitModRMImm refuses one, so only a gather takes it; vex.Emit takes its X
+  bit.  The parser takes an XMM / YMM index only in the vector table's operands (Parser.X64Vsib).  AVX2's eight
+  gathers (avx_table_gather.bn, classes x / y); overlapping destination / index / mask registers, of any widths,
+  are an error (user 2026-11-23).  Kept differences, as GNU as: a vector index outside a gather (clang encodes the
+  general register of its number) and beside rip (clang reads it as no base) are errors.  Stage 5 reuses Vsib for
+  the EVEX gathers and scatters (ZMM index, the 32 registers).
+
+Next: 4d, FMA3, F16C, the VEX crypto forms (VAES, VPCLMULQDQ with its names, GFNI, SHA512, SM3, SM4) and AVX-VNNI
+/ IFMA / NE-CONVERT / VNNI-INT8 / INT16 (some only after {vex}).
