@@ -627,6 +627,15 @@ IR-gen cannot map is an internal error, never `int`.
        beside mustParse; interp's mustCheckPackage), the three irgen tests (mustCheck).  A probe in requireChecker
        over the IR-producing packages' tests found five programs that did not check (four in codegen, one in
        the VM); each is fixed to say what it meant.
+     - 7c-2 DONE (binate `8adedb04d`, 2026-11-24; user: "wait 12 minutes, then land; then continue"): the tests
+       that handed IR-gen declarations at a prompt the checker never saw check them in a session first, as the
+       REPL does (genReplSession / checkedReplDecl; the mutually recursive structs resolve together through
+       RetryPendingDecls); TestDeepAliasChainRepl checks its chain as a session file's declarations,
+       TestRegisterIfaceStubFilled its package's interface, and the VM's five REPL-redefinition tests their
+       programs with a session checker (mustCheckSession).  A probe of the by-spelling fallbacks over the irgen and
+       VM tests afterwards: only IR-gen's own syntax (the assignment that runs a package variable's initializer)
+       and white-box tests of the fallbacks reach one, and only TestFuncRefsFromRecords hands one a checked
+       expression with no record.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
