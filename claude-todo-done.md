@@ -9,6 +9,16 @@ Total stack at -O2 on aarch64, before / after: parser 76,320 / 72,752, irgen 290
 527,936 (3.1-4.7% less); x86-64 and arm32 have no argument regions and are unchanged.  Conformance
 1771_shared_argument_regions.
 
+### Checking is quadratic in a package's number of declarations: irbuild's pending-dtor lists -- DONE (binate `281dff253`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+registerPendingMsDtor / MpDtor / StructDtor (irbuild/pending_dtor.bn) deduplicated a module's pending-dtor lists by
+a walk of the names (irutil.HasName) and grew them by two copying appends.  Each pair has a builder
+(ir.PendingDtorsAdd: vecs and a name index) that keeps the lists its views and rebuilds itself when the REPL's
+rollback or drain has replaced them; the review's one finding (a duplicate after a rebuild returned the old lists,
+so each later duplicate rebuilt again) was fixed before landing.  A ring of 8,000 named managed-slice types
+2.18-2.21 s from 2.96-3.01 s; cmd/bnc's LLVM IR on 3 targets and all 2,998 corpus programs identical to main's.
+Tests: TestPendingDtorsAfterListsReplaced.
+
 ### bnfmt moved a comment after a `...` or in parentheses around an expression out of its place — DONE (binate `7e15b5fc4`, 2026-11-24, temp-4; user: "wait 8 minutes, then land; then work on the open LOW entry" for the last part) (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
 `664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of

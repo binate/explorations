@@ -2873,7 +2873,8 @@ The front end's per-declaration lists and scans are linear since binate `84fcd92
 descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; the
 variables' initialization order since `57682da11`; Module.Globals and IR-gen's lookups of a package variable's
 global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`; the hidden globals' names since
-`138221910` (claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
+`138221910`; irbuild's pending-dtor lists since `281dff253` (claude-todo-done.md).  What is left grows with a
+package's number of declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
@@ -2883,10 +2884,8 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
 - the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way,
   and the LLVM backend's addStructDef looks a struct definition up by name in a list (irutil.Streq), quadratic in a
   program's struct types: most of the 40 to 110 s a 20,000-link method chain takes at `--emit-llvm`;
-- irbuild's pending helper lists (PendingMsDtorNames / PendingMpDtorNames / PendingStructDtorNames, irutil.HasName
-  and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
-  managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
-  before the front-end step; ~5% in the pending helper lists);
+- LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of 8,000 named managed-slices with a
+  drop site per type, 2.2 s, mostly there (irbuild's pending helper lists, the rest of it, linear since `281dff253`);
 - The REPL's drain (EnsureReplBodyHelpers, irgen/gen_repl_types.bn) empties the Ms and Struct lists after each
   prompt but not the Mp pair, so every later prompt walks all the managed-pointer dtors queued so far again (each
   a no-op by its generated set) -- per-prompt work growing with the session (found 2026-11-24, work-1).
