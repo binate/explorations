@@ -7,7 +7,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt writes a trailing comma in a function type's result list, which does not parse — 🔴 OPEN (MAJOR: `bnfmt -w` turns a valid file into one that does not parse; found 2026-11-24, temp-4, review of the parameter-list width change; pre-existing, bnfmt `bnc-0.0.17` and main the same)
+### bnfmt writes a trailing comma in a function type's result list, which does not parse — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4; user: "Fix first, separately (Recommended)") (MAJOR: `bnfmt -w` turns a valid file into one that does not parse; found 2026-11-24, temp-4, review of the parameter-list width change; pre-existing, bnfmt `bnc-0.0.17` and main the same)
 
 `var v *func(int) (Aaaa, <90 B's> /* c */)` formats to `var v *func(int) (Aaaa,` / `<90 B's>,` / `/* c */` / `)`,
 and the parser rejects the `,` before the `)` (`expected type`): the grammar permits a trailing comma in arguments,
