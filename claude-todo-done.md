@@ -6,6 +6,16 @@ and check are byte-identical on all three targets; compiling check natively at -
 (median of 9 interleaved rounds, perf/ab-binaries.sh).  The review found no correctness problem; its test gaps were
 closed (a cursor after the allocator's passes, with both fold sets non-empty, checked at every point).
 
+### Checking is quadratic in a package's number of declarations: LLVM codegen's return-type table -- DONE (binate `4e8613a31`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+EmitModule built funcRetTypes with a copying append per function, and lookupRetType / lookupIsSret walked it per
+call site.  The table moved to codegen/emit_func_rets.bn (out of emit.bn, near its cap), built in a vec; EmitModule
+indexes the list it builds (dropped as it starts and ends), and a lookup uses the index when given that very list
+(its first element's address and length), walking any other.  A ring of 8,000 named managed-slice types 1.24-1.27 s
+from 1.88-2.00 s; cmd/bnc's LLVM IR on 3 targets (and with -g) and all 2,999 corpus programs identical to main's;
+the review found no problem (its stale test comment and a prefix test case done before landing).  Tests:
+TestFuncRetLookups.
+
 ### Native frames: a call's copies of its by-reference struct arguments were never shared — DONE (binate `41149618d`, 2026-11-24, work-3; user: "go ahead")
 
 The argument regions (AAPCS64's aggregates over 16 bytes, passed as a pointer to a copy the call owns) already
