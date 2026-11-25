@@ -290,3 +290,7 @@ today.
 - Argument regions share bytes with the data regions: binate `41149618d` (2026-11-24).  Total stack at -O2 on
   aarch64, before / after: parser 76,320 / 72,752, irgen 290,864 / 281,824, check 546,016 / 527,936; x86-64 and arm32
   unchanged.
+- arm32 spill slots are a word unless the value is wider: binate `be19f45f6` (2026-11-25). Total stack at -O2 on
+  arm32, before / after: parser 57,368 / 51,512, irgen 236,496 / 201,904, check 451,600 / 390,112; aarch64 and x86-64
+  unchanged (byte-identical).  Before it, binate `b62b7972c` (2026-11-24) gave an aggregate parameter with a data
+  region no spill slot (0.1-1.0% on each target).

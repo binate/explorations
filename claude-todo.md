@@ -587,16 +587,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native arm32: every spill slot is 8 bytes, though most arm32 values are 4 — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "then do the 2 follow-ups") (found 2026-11-24, work-3, measuring the write-only pointer slots)
-
-Every native spill slot is 8 bytes, on every target (native/common's packSpillSlots packs 8-byte slots, and
-PlanFrame's walk starts each unshared slot at 8), but most arm32 values -- pointers, ints, aggregates' addresses --
-are 4 bytes.  arm32's shared spill area at -O2 is 70,360 bytes of irgen's frames against aarch64's 31,728, and
-116,864 of check's against 48,544 (measured 2026-11-24; arm32 also spills more, having fewer registers).  Giving a
-4-byte value a 4-byte slot -- packSpillSlots packing two sizes, the walk sizing by the value, the arm32 emitters
-storing and loading 4 bytes, 8-byte values (an int64 pair, a float64) keeping 8-aligned slots -- could save up to
-half of it.  Measure the share of 4-byte values first.
-
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16

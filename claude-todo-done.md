@@ -1,3 +1,14 @@
+### Native arm32: every spill slot was 8 bytes, though most arm32 values are 4 — DONE (binate `be19f45f6`, 2026-11-25, work-3; user: "then do the 2 follow-ups")
+
+A slot is now spillSlotBytes: a word, or 8 bytes for a scalar wider than one (int64 / uint64 / float64 on a 32-bit
+target); an OP_BOX's slot is sized by its scalar operand, which it stores there; multi-return tuples keep their
+size.  The shared slots pack by size class (8 first, then 4; an assert stops on any other size); parameters' and
+the walk's unshared slots are sized and aligned the same way, and each frame area starts 8-aligned.  aarch64 /
+x86-64 objects of parser, irgen and check are byte-identical.  Total stack at -O2 on arm32, before / after: parser
+57,368 / 51,512, irgen 236,496 / 201,904, check 451,600 / 390,112 (10-15% less).  Conformance subset (596) on
+native arm32 bare metal and Linux hard-float: 0 failed. The review found no correctness problem; its test gaps were
+closed.
+
 ### Native: an aggregate parameter with a data region filled a spill slot nothing read — DONE (binate `b62b7972c`, 2026-11-24, work-3; user: "then do the 2 follow-ups")
 
 PlanFrame gives an aggregate parameter whose bytes arrive in registers (a data region) no spill slot, and the
