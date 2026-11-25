@@ -463,5 +463,17 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   vaddps` is VEX, `{vex} {rex} mov` takes the REX), bnas rejects both.  Seen for stage 5: a scalar FMA's fourth
   operand clang reads as EVEX's rounding mode.
 
-Next: 4e, AMD's FMA4 and XOP vector instructions (vfrcz*, vpcmov, vpcom* with its predicate names, vphadd* /
-vphsub*, vpmacs* / vpmadcs*, vpperm, vprot*, vpsha* / vpshl*, vpermil2ps / pd), XOP-encoded (prefix 8F).
+- Stage 4e (FMA4 and XOP) — landed binate `90faac232` (2026-11-25; user: "go ahead"): avx_table_amd.bn, 147 forms:
+  FMA4 (VEX 0F 3A, the fourth register in imm8[7:4]; clang takes W 1 between registers), XOP's vector instructions
+  (8F, maps 08 / 09 through vex.EmitXop; W 0 between registers), vpermil2ps / pd (class T, an imm4 beside the
+  register, a number 0..15), and vpcom's predicate names (lt le gt ge eq neq false true).  {vex*} before XOP stays
+  an error, as clang.  Stage 4 is complete: of the 242,511-line sweep of every LLVM v-mnemonic with XMM / YMM
+  operands, every line clang encodes as VEX or XOP agrees; the 1,703 that differ are the EVEX lines, stage 5's
+  (among them: a fourth immediate as the rounding mode of vaddss / the scalar FMAs, memory of no size as 512 bits,
+  the shifts by an immediate of memory, broadcasts from a general register, the three-operand vpermq / vpermpd,
+  vmovd between XMM registers, and the seven names that take {vex} here).
+
+Next: stage 5, EVEX (AVX-512, asm/x64/avx512): masks k0-k7 with merging / zeroing, broadcast, embedded rounding
+and SAE, the compressed disp8*N, the 32 vector registers (XMM16..31 at 48..63, YMM16..31 at 112..127, ZMM;
+x64.Operand.Vsib for the EVEX gathers and scatters), the {evex} pseudo-prefix (user 2026-11-18), and the seven
+names clang encodes as EVEX by default.
