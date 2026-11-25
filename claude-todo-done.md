@@ -9,6 +9,18 @@ stack at -O2, before / after: aarch64 parser 72,752 / 72,656, irgen 273,104 / 27
 x86-64 74,216 / 74,120, 266,008 / 263,352, 520,568 / 517,688; arm32 57,480 / 57,368, 242,248 / 240,392, 454,272 /
 451,600.  Conformance subset (511) on native aa64, x64, arm32 bare metal and arm32 Linux hard-float: 0 failed.
 
+### Checking is quadratic in a package's number of declarations: ir.LookupModuleFunc -- DONE (binate `061119420`, 2026-11-25, work-1; user: "Land it"; the rest of the entry stays open)
+
+ir.LookupModuleFunc walked Module.Funcs by name, once per method from IR-gen's generateIvDispatchThunks.  It goes
+through Module.FuncIndex over the Funcs view in FuncIndexFor (ir/func_index.bn): AddFunc extends it while it covers
+Funcs and Funcs is FuncsVec's view and drops it otherwise; a lookup rebuilds it when gone or covering another view;
+the REPL's undo (pops) and renameModuleFunc (renames) drop it; a hit with another name panics as an internal error.
+The first review found the first version's MAJOR bug (an index going stale after a pop and a regrow in the same
+backing: missed names, keys over freed names -- CLAUDE.md now has the lesson); the re-review's fuzzing (5,587
+lookups) found no mismatch.  A 20,000-link method chain 1.84-2.08 s from 3.62-4.07 s; cmd/bnc's LLVM IR on 3 targets
+and all 2,999 corpus programs identical to main's.  Tests: TestLookupModuleFunc,
+TestLookupModuleFuncAfterPopAndRegrow.
+
 ### Checking is quadratic in a package's number of declarations: the REPL drain's managed-pointer list and value-dtor flags -- DONE (binate `7f675ac53`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
 
 EnsureReplBodyHelpers (irgen/gen_repl_types.bn) emptied the managed-slice and struct dtor lists after each prompt

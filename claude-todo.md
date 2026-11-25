@@ -2861,8 +2861,9 @@ The front end's per-declaration lists and scans are linear since binate `84fcd92
 descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; the
 variables' initialization order since `57682da11`; Module.Globals and IR-gen's lookups of a package variable's
 global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`; the hidden globals' names since
-`138221910`; irbuild's pending-dtor lists since `281dff253`; LLVM codegen's return-type table since `4e8613a31`
-(claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
+`138221910`; irbuild's pending-dtor lists since `281dff253`; LLVM codegen's return-type table since `4e8613a31`;
+ir.LookupModuleFunc since `061119420` (claude-todo-done.md).  What is left grows with a package's number of
+declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
@@ -2871,10 +2872,6 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
   (VarsChecking, FuncsDefined, FuncsDefining: declInList over slices.Append) the same way;
 - the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way
   (LLVM's addStructDef, also named here, has an index since binate `7f47f5003`);
-- ir.LookupModuleFunc (ir/ir_util_shared.bn) walks Module.Funcs by name, and IR-gen's generateIvDispatchThunks
-  calls it once per method (iriface's thunk query and iropt's fallback too): a 20,000-link chain of methods
-  (`func (t Ti) M() Ti+1`) 7.8 s at `--emit-llvm`, 3.1 s at 10,000, nearly all of it there (found 2026-11-24,
-  work-1, profiling the method chain);
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
