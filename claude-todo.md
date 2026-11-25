@@ -2865,9 +2865,12 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
   copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni` variable
   chain is 6,000 long, short of where the old recursion crashed (~12,000); the batch's on-demand lists
   (VarsChecking, FuncsDefined, FuncsDefining: declInList over slices.Append) the same way;
-- the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way,
-  and the LLVM backend's addStructDef looks a struct definition up by name in a list (irutil.Streq), quadratic in a
-  program's struct types: most of the 40 to 110 s a 20,000-link method chain takes at `--emit-llvm`;
+- the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way
+  (LLVM's addStructDef, also named here, has an index since binate `7f47f5003`);
+- ir.LookupModuleFunc (ir/ir_util_shared.bn) walks Module.Funcs by name, and IR-gen's generateIvDispatchThunks
+  calls it once per method (iriface's thunk query and iropt's fallback too): a 20,000-link chain of methods
+  (`func (t Ti) M() Ti+1`) 7.8 s at `--emit-llvm`, 3.1 s at 10,000, nearly all of it there (found 2026-11-24,
+  work-1, profiling the method chain);
 - The REPL's drain (EnsureReplBodyHelpers, irgen/gen_repl_types.bn) empties the Ms and Struct lists after each
   prompt but not the Mp pair, so every later prompt walks all the managed-pointer dtors queued so far again (each
   a no-op by its generated set) -- per-prompt work growing with the session (found 2026-11-24, work-1).
