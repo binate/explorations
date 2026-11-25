@@ -579,14 +579,6 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### The lazy-spill cursor recomputes the GP allocator's liveness -- a second full GP pass per function — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "go ahead") (found 2026-11-22, work-3, review of binate `61ab9d237`)
-
-Each native backend's emit_func builds a LiveCursor (RegMap.NewLiveCursor) after PlanFrame with the same function,
-the same fusable set (UnionFusable(rm.FusableGep, rm.FusableFieldGep)), class and word size as AllocateRegisters'
-liveness, so it computes the same LivenessInfo again: about 0.9% of a native compile's main-thread samples (profile
-of irgen, after `61ab9d237`).  Keeping the allocator's LivenessInfo on the RegMap for the cursor would remove the
-pass; nothing changes the function in between (liveCFGOf already panics if a block's length does).
-
 ### Native arm32: every spill slot is 8 bytes, though most arm32 values are 4 — 🔴 OPEN (found 2026-11-24, work-3, measuring the write-only pointer slots)
 
 Every native spill slot is 8 bytes, on every target (native/common's packSpillSlots packs 8-byte slots, and

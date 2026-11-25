@@ -1,3 +1,11 @@
+### The lazy-spill cursor recomputed the GP allocator's liveness -- a second full GP pass per function — DONE (binate `ae58a8108`, 2026-11-24, work-3; user: "go ahead")
+
+AllocateRegisters keeps its LivenessInfo on the RegMap, and NewLiveCursor reads it when it was computed for the
+same function, word size and fusable set (sameFlags), else computes its own.  The native objects of parser, irgen
+and check are byte-identical on all three targets; compiling check natively at -O2 retires 1.02% fewer instructions
+(median of 9 interleaved rounds, perf/ab-binaries.sh).  The review found no correctness problem; its test gaps were
+closed (a cursor after the allocator's passes, with both fold sets non-empty, checked at every point).
+
 ### Native frames: a call's copies of its by-reference struct arguments were never shared — DONE (binate `41149618d`, 2026-11-24, work-3; user: "go ahead")
 
 The argument regions (AAPCS64's aggregates over 16 bytes, passed as a pointer to a copy the call owns) already
