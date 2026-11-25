@@ -451,5 +451,17 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   general register of its number) and beside rip (clang reads it as no base) are errors.  Stage 5 reuses Vsib for
   the EVEX gathers and scatters (ZMM index, the 32 registers).
 
-Next: 4d, FMA3, F16C, the VEX crypto forms (VAES, VPCLMULQDQ with its names, GFNI, SHA512, SM3, SM4) and AVX-VNNI
-/ IFMA / NE-CONVERT / VNNI-INT8 / INT16 (some only after {vex}).
+- Stage 4d (FMA, F16C, the VEX extensions) — landed binate `41e42ab08` (2026-11-24; user: "wait 4 minutes, then
+  land"): avx_table_fma.bn (FMA3, 96 forms) and avx_table_ext.bn (82: F16C, VAES, VPCLMULQDQ with its selectors'
+  names, GFNI, SHA512, SM3, SM4, AVX-NE-CONVERT, AVX-VNNI-INT8 / INT16, AVX-VNNI, AVX-IFMA).
+  asm.Assembler.X64Vex3 became X64Vex (0, 2 for {vex} / {vex2}, 3 for {vex3}).  The seven names clang encodes as
+  EVEX unless {vex} is written (vpdpbusd .. vpdpwssds, vpmadd52luq / huq, vcvtneps2bf16; a review checked every
+  name of the table against clang, and these are all) take their VEX form after {vex} / {vex2} / {vex3} and are an
+  error without one until stage 5 gives them the EVEX form clang emits.  Kept differences, as GNU as, found by the
+  review: clang rejects a mnemonic not in lower case after any pseudo-prefix (`{vex} VPDPBUSD`, `{rex} MOV`; plain
+  `VPDPBUSD` it takes), bnas takes it; clang keeps {rex} and {vex*} in one slot, the last winning (`{rex} {vex}
+  vaddps` is VEX, `{vex} {rex} mov` takes the REX), bnas rejects both.  Seen for stage 5: a scalar FMA's fourth
+  operand clang reads as EVEX's rounding mode.
+
+Next: 4e, AMD's FMA4 and XOP vector instructions (vfrcz*, vpcmov, vpcom* with its predicate names, vphadd* /
+vphsub*, vpmacs* / vpmadcs*, vpperm, vprot*, vpsha* / vpshl*, vpermil2ps / pd), XOP-encoded (prefix 8F).
