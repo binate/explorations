@@ -1,3 +1,30 @@
+### Whether a generic instance's type argument is held to the size limit differed by kind — DONE (binate `721856a92`, docs `455c2df`, 2026-11-25, temp-5; decided 2026-11-24, user: "It seems like we should count it, right?"; landed on "wait 12 minutes, then land") (found 2026-11-18, temp-5, review of the dependent-error drop for abstract and unnamed instances)
+
+`type.layout.max-size` rejects a program that forms a type larger than the target's `int` allows: "a declared
+type, a variable's, field's, element's or pointee's type, or a `sizeof` / `alignof` operand".  A type argument is
+not in that list, and the checker differs by kind: a generic function's type argument is held to the limit
+(`f[[1 << 61]int64]()` is rejected, "type is too large"; instantiateGenericFunc's requireFitting), and so is a
+struct instance's (`type B2[U any] struct { n int }` with `var y B2[[1 << 61]int64]`, U unused), but an interface
+instance's is not (`interface E[U any] { m() int }` with `var x @E[[1 << 61]int64]` is accepted).  binate main
+`53d9b85a4` rejects `var x @Big[T, [1 << 61]int64]` in an uninstantiated generic (Big's method taking a U) only
+through the abstract instance's method parameter, which no program forms; once an abstract instance's build
+drops its dependent errors it is accepted.  Decide whether a type argument is a type the program forms (then add
+type arguments to the rule's list and hold an interface instance's to it at the use) or not (then stop holding a
+function's and a struct instance's to it).
+Decided (2026-11-24), user: "It seems like we should count it, right?" -- a type argument is a type the
+program forms, as type.opaque.pointer-to-embedding already says of the opaque rules ("The type arguments are
+themselves types written there, held to this rule whether or not the instance uses them"); one whose size
+depends on a type parameter stays a dependent construct.
+Resolution: docs `455c2df` adds "a generic instance's type argument (whether or not the instance lays it
+out)" to `type.layout.max-size`, and binate `721856a92` holds an interface instance's arguments to it in an
+interface value (`var x @E[[1 << 61]int64]`, `@Big[T, [1 << 61]int64]` in a generic's body), a constraint, an
+impl's interface list, an interface's parent and an interface alias, and a generic alias's arguments its target
+never names at every non-speculative use (`type Ph[U any] = int` with `Ph[[1 << 61]int64]`), inside another
+instance's fields and a generic function instance's signature included.  A generic function's and a struct
+instance's arguments were held already; one whose size depends on a type parameter is still decided per named
+instance (gen.mono.check).  `@Big[int8, [1 << 61]int64]`, with Big's method taking the U, reports twice: at the
+method's parameter and at the argument.
+
 ### bnfmt did not wrap a type inside a parameter list, and left it no room for what followed it — DONE (binate `de0af0686`, 2026-11-25, temp-4; user: "work on the open LOW entry", on the reviews' findings "Function types only (Recommended)" and "File them, land without (Recommended)", landed on "wait 8 minutes, then land both and keep the entry open") (LOW; part of "bnfmt does not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly`" in claude-todo.md; found 2026-11-14, temp-4, review of the comments inside types)
 
 A parameter-list item was rendered once, from column 0, and went on its line whole, so a type in it that could wrap

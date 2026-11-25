@@ -420,24 +420,6 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Whether a generic instance's type argument is held to the size limit differs by kind — 🟡 IN PROGRESS (claimed 2026-11-24, temp-5/session; decided 2026-11-24: count it; found 2026-11-18, temp-5, review of the dependent-error drop for abstract and unnamed instances)
-
-`type.layout.max-size` rejects a program that forms a type larger than the target's `int` allows: "a declared
-type, a variable's, field's, element's or pointee's type, or a `sizeof` / `alignof` operand".  A type argument is
-not in that list, and the checker differs by kind: a generic function's type argument is held to the limit
-(`f[[1 << 61]int64]()` is rejected, "type is too large"; instantiateGenericFunc's requireFitting), and so is a
-struct instance's (`type B2[U any] struct { n int }` with `var y B2[[1 << 61]int64]`, U unused), but an interface
-instance's is not (`interface E[U any] { m() int }` with `var x @E[[1 << 61]int64]` is accepted).  binate main
-`53d9b85a4` rejects `var x @Big[T, [1 << 61]int64]` in an uninstantiated generic (Big's method taking a U) only
-through the abstract instance's method parameter, which no program forms; once an abstract instance's build
-drops its dependent errors it is accepted.  Decide whether a type argument is a type the program forms (then add
-type arguments to the rule's list and hold an interface instance's to it at the use) or not (then stop holding a
-function's and a struct instance's to it).
-Decided (2026-11-24), user: "It seems like we should count it, right?" -- a type argument is a type the
-program forms, as type.opaque.pointer-to-embedding already says of the opaque rules ("The type arguments are
-themselves types written there, held to this rule whether or not the instance uses them"); one whose size
-depends on a type parameter stays a dependent construct.
-
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
