@@ -9,6 +9,15 @@ stack at -O2, before / after: aarch64 parser 72,752 / 72,656, irgen 273,104 / 27
 x86-64 74,216 / 74,120, 266,008 / 263,352, 520,568 / 517,688; arm32 57,480 / 57,368, 242,248 / 240,392, 454,272 /
 451,600.  Conformance subset (511) on native aa64, x64, arm32 bare metal and arm32 Linux hard-float: 0 failed.
 
+### Checking is quadratic in a package's number of declarations: the REPL drain's managed-pointer list and value-dtor flags -- DONE (binate `7f675ac53`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+EnsureReplBodyHelpers (irgen/gen_repl_types.bn) emptied the managed-slice and struct dtor lists after each prompt
+but not the managed-pointer pair, nor NeedsFuncValueDtor / NeedsIfaceValueDtor (the review found the flags), so
+after the first such drop (or one in the loaded file) the drain's early return never fired again and every later
+prompt walked all the module's functions.  It empties and clears them all; a helper queued again is found emitted
+(collectExistingHelperNames), an undone entry restores them.  Tests: TestEnsureReplBodyHelpersResetsMpList (fails
+with either reset left out).
+
 ### The lazy-spill cursor recomputed the GP allocator's liveness -- a second full GP pass per function — DONE (binate `ae58a8108`, 2026-11-24, work-3; user: "go ahead")
 
 AllocateRegisters keeps its LivenessInfo on the RegMap, and NewLiveCursor reads it when it was computed for the

@@ -2871,9 +2871,6 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
   calls it once per method (iriface's thunk query and iropt's fallback too): a 20,000-link chain of methods
   (`func (t Ti) M() Ti+1`) 7.8 s at `--emit-llvm`, 3.1 s at 10,000, nearly all of it there (found 2026-11-24,
   work-1, profiling the method chain);
-- The REPL's drain (EnsureReplBodyHelpers, irgen/gen_repl_types.bn) empties the Ms and Struct lists after each
-  prompt but not the Mp pair, so every later prompt walks all the managed-pointer dtors queued so far again (each
-  a no-op by its generated set) -- per-prompt work growing with the session (found 2026-11-24, work-1).
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
