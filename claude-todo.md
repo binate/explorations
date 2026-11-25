@@ -2882,6 +2882,9 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
   and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
   managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
   before the front-end step; ~5% in the pending helper lists);
+- The REPL's drain (EnsureReplBodyHelpers, irgen/gen_repl_types.bn) empties the Ms and Struct lists after each
+  prompt but not the Mp pair, so every later prompt walks all the managed-pointer dtors queued so far again (each
+  a no-op by its generated set) -- per-prompt work growing with the session (found 2026-11-24, work-1).
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
