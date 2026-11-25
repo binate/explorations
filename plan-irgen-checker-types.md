@@ -636,6 +636,17 @@ IR-gen cannot map is an internal error, never `int`.
        VM tests afterwards: only IR-gen's own syntax (the assignment that runs a package variable's initializer)
        and white-box tests of the fallbacks reach one, and only TestFuncRefsFromRecords hands one a checked
        expression with no record.
+     - 7c-3 DONE (binate `5ef76cee8`, 2026-11-24; user: "wait 10 minutes, then land"): each by-spelling read
+       stops with an internal error on syntax the checker checked (requireOwnSyntax, or requireOwnSyntaxIn
+       where the checked node is the enclosing one: a method call's base, a `_func_handle` / `__c_entry`
+       operand); the type and value differentials go with their bnc / bni flags and tests, and so do genExpr's
+       constant-value fallback for a checked identifier with no record and genBuiltin's `unsafe_index` arm.
+       A type expression's only stamp is its record, so type reads from syntax with no record stay silent.
+       Every module's objects unchanged (codegen-ab.sh, all three corpora); VM multi-package conformance and
+       the REPL e2e green.  Still read by spelling: IR-gen's own syntax (MakeInitAssignStmt for bnc's package
+       init and the REPL's initializers, the REPL's MakeZeroAssignStmts) and the record-less type fallbacks
+       (resolveTypeExprFromSyntax, exprToTypeExpr).  Emitting those two assignments as direct stores and
+       deleting the by-spelling resolvers (~320 lines; "option B") awaits the user's decision.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
