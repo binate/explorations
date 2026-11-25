@@ -2856,6 +2856,15 @@ with 40,000 variables wi took 4.97 s against 2.59 s for the same literal in a fu
 samples in collectVarDepsIn).  Fix: find the literal's quadratic step (a profile of the 40,000 case); collect the
 reads into a vec (the deps threaded through ~35 collectVarDepsIn sites, and check_var_free_reads.bn's caller).
 
+### An alias's walk frame resolves none of its constants ahead: its calls carry no constant list — 🔴 OPEN 🟢 LOW (found 2026-11-25 by the review of the batch's constant index; pre-existing)
+
+check/check_pending_alias.bn pushes an alias's by-name call with empty constant lists (`byNamePush(byNameAlias, ...,
+noNames, noDecls)`), and the calls it makes inherit them (byNameCallFrom), so startConstByName's findConstDecl finds
+none of the constants an alias's target reads, and resolving them ahead does nothing: each is resolved on demand where
+it is read (batchConstOnDemand).  No wrong output seen; a 20,000-link chain alternating aliases and constants (`type
+Ai = [Ci]int8` / `const Ci = sizeof(Ai+1)`) compiles in 2.2 s.  Fix: pass the batch's lists (b.ConstNames /
+b.ConstDecls) as the other batch walks do, or say why the alias walk must not resolve constants ahead.
+
 ### clang crashes compiling the -g debug info of a 20,000-struct ring — 🟡 IN PROGRESS (claimed 2026-11-21, work-1; user: "can you take on the low-priority work") 🟢 LOW (found 2026-11-15, work-1, deep-nesting codegen stage)
 
 With -g, bnc emits the debug info of a ring of structs each holding a pointer to the next (binate `7f47f5003` interns
