@@ -1,3 +1,14 @@
+### Native frames: a call's copies of its by-reference struct arguments were never shared — DONE (binate `41149618d`, 2026-11-24, work-3; user: "go ahead")
+
+The argument regions (AAPCS64's aggregates over 16 bytes, passed as a pointer to a copy the call owns) already
+shared one area across a function's calls, but the area stood apart from the rest of the frame.  Each region is now
+an item of the data regions' packing (placeSharedRegions / packByStart), in use only at its call's position, so it
+shares bytes with the other calls' regions and the data regions not in use there; the regions of calls the entry
+does not reach keep one area of their own.  collectArgCopies now runs before the packing, from regionPlan's owners.
+Total stack at -O2 on aarch64, before / after: parser 76,320 / 72,752, irgen 290,864 / 281,824, check 546,016 /
+527,936 (3.1-4.7% less); x86-64 and arm32 have no argument regions and are unchanged.  Conformance
+1771_shared_argument_regions.
+
 ### bnfmt moved a comment after a `...` or in parentheses around an expression out of its place — DONE (binate `7e15b5fc4`, 2026-11-24, temp-4; user: "wait 8 minutes, then land; then work on the open LOW entry" for the last part) (LOW; found 2026-10-26, temp-4, review of the marked group member fix; pre-existing; the operator chains' part done in binate `df21fe656`, the expressions', simple statements', declarations' and composites' in binate `27bdebd4b`, `43d112b0a`, `8d796d5f6` and `17701aeb7`; the lists' closes in binate `91a0c17ee` and `d2c6178e7`; the slices', type assertions', type-operand builtins' and `__c_call`'s closes in binate `64dce165e`, and the slice break they needed in binate `436c441f0`; the line comment after a slice's `:` with no high bound in binate `c17e85ff4`; the line comment after a `__c_call`'s `...` in binate `decd60279`; the types' in binate `6d97d7e91`; the
 `__c_global`'s in binate `7484184d0`; a single result's parentheses, kept for a comment after their `(`, in binate
 `664d9f6e5`; the comments between a string run's parts in binate `1f47cbe77`; those before the `)` of

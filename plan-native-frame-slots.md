@@ -287,3 +287,6 @@ today.
   only by the call.  Total stack at -O2 (perf/frame-sizes.sh's prologue scan summed over each package's functions),
   before / after: aarch64 parser 76,992 / 76,320, irgen 297,792 / 291,104, check 556,144 / 546,016; x86-64 75,208 /
   74,216, 282,576 / 275,616, 531,560 / 520,568; arm32 58,456 / 57,480, 255,912 / 248,664, 465,184 / 454,272.
+- Argument regions share bytes with the data regions: binate `41149618d` (2026-11-24).  Total stack at -O2 on
+  aarch64, before / after: parser 76,320 / 72,752, irgen 290,864 / 281,824, check 546,016 / 527,936; x86-64 and arm32
+  unchanged.
