@@ -249,6 +249,10 @@ lowering's IR passes cost the double VM against the execution speed they buy.
 - **Symptom:** `type Pair[A any, B any] struct { a *A; b *B }`, `type P0 = Pair[int, int]`, `type Pk = Pair[P(k-1), P(k-1)]` up to n, and `var x Pn`, with no type error, compiles in 2.6 s at n = 18, 31 s at 22, and more than 120 s at 24 (main at `3b3b6ef2d`); the time is in IR-gen, after the checker.
 - **Root cause (from a sample; the name length by reasoning):** IR-gen's `registerModuleTypeDecl` → `ensureInstantiatedType` → `ensureInstantiatedStruct` (recursing), with the time in `instantiationMangledName` → `mangle.LpWriteArgList` / `lpTypeArgNamed`: the mangled name of `Pair[P(k-1), P(k-1)]` writes its argument's name twice, so the name of `Pn` is 2^n long.
 - **Needs a decision:** the mangling scheme — a backreference to an argument already written in the name (as the Itanium ABI's substitutions do), or a hash for a long argument list.  Whether `ensureInstantiatedStruct`'s recursion is exponential apart from the name is still to check.
+- **Also crashes the linker** (found 2026-11-24, temp-5, review of the type-argument size limit): a doubling chain
+  of interface instances (each instance's arguments two of the previous level's) only 8 levels deep makes Apple ld
+  assert (`__assert_rtn` in `ld::DynamicAtomFile::makeNamedAtom`), probably on the symbol's length; the struct-only
+  variant is exponential in IR-gen's mangling the same way.
 
 ### The checker spells an instance's type arguments out in its label — a generic alias nested in itself takes time exponential in the depth — 🔴 OPEN 🟢 LOW (compile time; found 2026-11-14, work-6, review of plan-irgen-checker-types 5e-2; pre-existing)
 
