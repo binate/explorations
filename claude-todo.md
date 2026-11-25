@@ -579,7 +579,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### Native arm32: every spill slot is 8 bytes, though most arm32 values are 4 — 🔴 OPEN (found 2026-11-24, work-3, measuring the write-only pointer slots)
+### Native arm32: every spill slot is 8 bytes, though most arm32 values are 4 — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "then do the 2 follow-ups") (found 2026-11-24, work-3, measuring the write-only pointer slots)
 
 Every native spill slot is 8 bytes, on every target (native/common's packSpillSlots packs 8-byte slots, and
 PlanFrame's walk starts each unshared slot at 8), but most arm32 values -- pointers, ints, aggregates' addresses --
