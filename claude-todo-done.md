@@ -1,3 +1,35 @@
+### bnfmt did not wrap a type inside a parameter list, and left it no room for what followed it — DONE (binate `de0af0686`, 2026-11-25, temp-4; user: "work on the open LOW entry", on the reviews' findings "Function types only (Recommended)" and "File them, land without (Recommended)", landed on "wait 8 minutes, then land both and keep the entry open") (LOW; part of "bnfmt does not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly`" in claude-todo.md; found 2026-11-14, temp-4, review of the comments inside types)
+
+A parameter-list item was rendered once, from column 0, and went on its line whole, so a type in it that could wrap
+did not, and it left no room for what followed it: `func f(<81 n's> Box[Aaaa, p.Bbbb], y int) …` put its first
+parameter on a continuation line 102 wide, and `func f(x ... // d` / `*func(<41 a's>, <42 b's>) int) {}` (`readonly`
+in place of the `...` the same) ran past the cap by the `) {}`.
+Fixed: a type or parameter item is measured by its one-line form (listItem.flat, wrapping suppressed) and, when that
+fits on neither line, from its renderings at the two places laid out by width alone (nodeItemStays), as an
+expression element is; it is printed in place, with room for what follows it, when its text does not fit, so its
+lists wrap there.  A parameter list's room for its results is measured with wrapping suppressed (a function type's
+results and type items with the structs in them on one line, structsOneLine), from where its `)` lands at the least
+(closeLeast: past a last parameter that cannot break), and results that cannot follow it get room for their first
+line only.  The renderings are kept per node and place (print_typememo.bn), for types with no comment and a known
+end: function types nested 12 deep in each other's results format in under 0.01 s, against 28 s on main.  Tests:
+print_typeitem_test.bn, print_typememo_test.bn, TestResultTypeLeavesRoomForTheBodyAfterIt (its parameter now keeps
+its line, and its results' last type takes the line after for the ` {`).  Of 17,216 generated files, 717 have
+fewer lines past the cap and 7 more; 734 that formatted differently a second time no longer do, and 9 newly do
+(filed: "bnfmt formats some parameter-list types differently a second time, or past the cap, around comments,
+structs and calls in array lengths").  Measuring a struct in a signature's own results by its one-line form too was
+set aside, keeping TestStructTypeMeasuredByItsFirstLine's rule (user: "Function types only (Recommended)").
+
+### bnfmt wrote a trailing comma in a function type's result list, which did not parse — DONE (binate `0e1b7b374`, 2026-11-25, temp-4; user: "Fix first, separately (Recommended)", landed on "wait 8 minutes, then land both and keep the entry open") (MAJOR: `bnfmt -w` turned a valid file into one that did not parse; found 2026-11-24, temp-4, review of the parameter-list width change; pre-existing, bnfmt `bnc-0.0.17` the same)
+
+`var v *func(int) (Aaaa, <90 B's> /* c */)` formatted to `var v *func(int) (Aaaa,` / `<90 B's>,` / `/* c */` / `)`,
+which the parser rejects (`expected type`): the grammar permits a trailing comma in arguments, parameters, type
+arguments and parameters, composite elements and annotations, not in a result list.  printResults printed a function
+type's results through printTypeListWrapped, which told printStrList the list takes a trailing comma.
+Fixed: printTypeListWrapped takes whether its list takes one -- a type-argument list does, a result list does not --
+and a comment before a result list's `)` stays on the line, as a signature's results keep it, past the cap when it
+must (TestFunctionTypeResultsTakeNoTrailingComma).  Of the review's 2,700 generated files, main's output failed to
+parse in 1, and the fix's in none.
+
 ### Native arm32: every spill slot was 8 bytes, though most arm32 values are 4 — DONE (binate `be19f45f6`, 2026-11-25, work-3; user: "then do the 2 follow-ups")
 
 A slot is now spillSlotBytes: a word, or 8 bytes for a scalar wider than one (int64 / uint64 / float64 on a 32-bit

@@ -7,18 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### bnfmt writes a trailing comma in a function type's result list, which does not parse — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4; user: "Fix first, separately (Recommended)") (MAJOR: `bnfmt -w` turns a valid file into one that does not parse; found 2026-11-24, temp-4, review of the parameter-list width change; pre-existing, bnfmt `bnc-0.0.17` and main the same)
-
-`var v *func(int) (Aaaa, <90 B's> /* c */)` formats to `var v *func(int) (Aaaa,` / `<90 B's>,` / `/* c */` / `)`,
-and the parser rejects the `,` before the `)` (`expected type`): the grammar permits a trailing comma in arguments,
-parameters, type arguments and parameters, composite elements and annotations, not in a result list.  printResults
-(print_decl.bn) prints a function type's results through printTypeListWrapped, which tells printStrList the list
-takes a trailing comma, so writeCloserGap puts a comment before the `)` that does not fit on the last result's line
-after a `,`, and the `)` on a line of its own.  A signature's results already print as a list that takes none
-(printSigResults).  Fix: printTypeListWrapped takes whether its list takes a trailing comma, false for results; a
-comment before their `)` then stays on the line, as a signature's does.  In the 2,700 generated files of the review
-that found it, main's output fails to parse in 1, and with the parameter-list width change (not yet landed) in 8.
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last
@@ -3068,24 +3056,35 @@ name> /* <a 40-character comment> */ {` prints 133 wide (before binate `b8a91ad0
 method, 90 wide), and `type <an 80-character name> /* <…> */ struct {` 142 wide (bnfmt `bnc-0.0.17-pre3` moves the
 comment, 99 wide).  A line break there would end the declaration, so such a line fits only if the comment moves.
 
-### bnfmt does not wrap a type inside a parameter list, and a parameter whose type keeps comments runs past the cap — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4) 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; pre-existing without comments, since binate `6d97d7e91` with them)
+### bnfmt does not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly` — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4) 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; the types' lists wrapping where they go done in binate `de0af0686`)
 
-A parameter-list item is rendered once, from column 0, and goes on its line whole, so a type in it that could wrap
-does not: `func f(<n×75> Box[Aaaa, p.Bbbb], yyyyyyyyyyyy int) (int, bool) {}` puts `<n×75> Box[Aaaa, p.Bbbb],` on
-a continuation line 102 wide, where the type-argument list could break (bnfmt `bnc-0.0.17-pre3` and the tree's).
-With the comments inside a type printed in place (binate `6d97d7e91`) it reaches more items: `func g(<n×61> [/*
-comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` prints its first parameter on a line of its
-own 109 wide, where bnfmt before `6d97d7e91` moved the comments after the `,` and stayed in the cap (5 files of the
-review's sweep).  Breaking such a type needs the item rendered at its continuation column, where its lists and
-brackets can wrap (after a type-argument list's `[` or `,`, after an array's `[`).
+`func g(<61 n's> [/* comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` prints its first
+parameter on a continuation line 103 wide: nothing breaks inside an array type's brackets but a length that itself
+passes the cap (printArrayLen), where a break after the `[` keeps it in the cap.  And a block comment after a `...`,
+a `*` or a `readonly` stays on the line whatever follows it (printDotsType, writeGapSeparator): `var v *func(int, ...
+/* <89 c's> */ int)` prints its second line 102 wide (`*` in place of the `...`, 103), and `func f(a int, b ... /*
+<79 c's> */ int) {}` 101 (`readonly` and `*[]int` in place of `...` and `int`, 109), where a break after the comment,
+the type going on at a continuation line, keeps them in the cap.
 
-The comments after a `...`, a `readonly` or a `*` in a parameter list go the same way, and a type after a line
-comment there reserves no room for what follows it on its line.  `func f(x ... // d` / `*func(<a×41>, <b×42>)
-int) {}` prints the type on a continuation line 102 wide (bnfmt before binate `7e15b5fc4`, which moved the
-comment after the parameter, 60; `readonly` in place of the `...`, 102 on main too); `var v *func(int, ... /*
-<c×89> */ int)` prints its second line 106 wide (97 before; `*` in place of the `...`, 103 on main); and `func f(a
-int, b ... /* <c×79> */ int) {}` 101 (100 before; `readonly` and `*[]int` in place of `...` and `int`, 109 on
-main).  A break after the block comment, or inside the type, keeps them in the cap.
+### bnfmt formats some parameter-list types differently a second time, or past the cap, around comments, structs and calls in array lengths — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, the reviews of the parameter-list width change; with binate `de0af0686`; the user: "File them, land without (Recommended)")
+
+Of 17,216 generated files, binate `de0af0686` formats 9 differently a second time that its parent did not, and
+leaves 7 a line past the cap that its parent kept in; not yet reduced but by shape:
+- 3 signatures whose struct result the source wrote on one line (`func f(nnnnnnnnnn Box[Aaaa, Bbbb]) struct { a <70
+  A's>; b int } {`), as in "bnfmt formats a signature whose one-line struct result expands after the `)`
+  differently a second time";
+- 3 in the reviews' sets with comments inside types: a struct with a field comment in a signature's results beside a
+  function literal in an array length; a call with a comment in an array length (`aaaaaaa [len(/* cc */x)]Box[A,
+  *func(int) A]`) beside function types with comments; and a struct after a function type's `...` with comments
+  after it, which comes out with a trailing comma the second time;
+- 3 non-idempotent and 6 past the cap with a function literal or a call in an array length in a parameter's type
+  (`func(x *[]*[]B, y *func(… [Sssss{g(cc, func(q p.C) { a(); b() }, d), …}]@func(int, ...B) A) …`): such a
+  type holds a block, which keeps its source's layout, so its renderings laid out by width alone (nodeItemStays) need
+  not be what a second format measures; and a parameter whose function type has an array result with a call in its
+  length (`bbbbbbbb @func(int, ...@func(int, ...B) Vec[int]) [len(len(<26 d's>))]B`) keeps its list on one line,
+  112 wide, where the parent wraps it;
+- 1 in a `cast` type operand, which takes no room for what follows it ("bnfmt prints a builtin with a type operand
+  without wrapping").
 
 ### bnfmt prints a comment inside a type switch's `.(type)` at the start of its body — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, a probe of a comment after each token, closing the comment-gap entry; pre-existing, bnfmt `bnc-0.0.17` the same)
 
@@ -3099,14 +3098,17 @@ continues the type on a line two tabs in).
 
 ### bnfmt formats a signature whose one-line struct result expands after the `)` differently a second time — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, a sweep of signatures with long results, working on the parameter-list width entry; pre-existing, main the same)
 
-`func f(a int, <45 n's> Tttt) struct { a <54 A's> } {` / `return nil` / `}`: the parameter list leaves room for
-the results' one-line form (sigTailLen, print_sig.bn), which can follow a `)` one byte past the continuation column,
-so the second parameter moves to a continuation line; the struct then does not fit after the `)` where it lands and
-expands over lines.  A second format reads the struct over lines, which it keeps (a struct's layout follows its
-source), so the list leaves room for its first line, ` struct {`, and the parameter goes back to the first line.
-12 of 600 generated signatures with long results do this, on main and with the change that lays a type in a
-parameter list out where it goes.  Fix: measure the struct alike in both formats -- by its one-line form when it has
-one, as that change measures the results' lists -- so it expands only where that form does not fit.
+`func f(nnnnnnnnnn Box[Aaaa, Bbbb]) struct { a <70 A's>; b int } {` / `return nil` / `}`: the parameter list leaves
+room for the results' one-line form (sigTailLen, print_sig.bn), which can follow the `)` where it lands at the least
+(closeLeast), so the parameter's type wraps; the struct then does not fit after the `)` and expands over lines.  A
+second format reads the struct over lines, which it keeps (a struct's layout follows its source), and a signature's
+own results measure it by its first line, ` struct {` (TestStructTypeMeasuredByItsFirstLine), so the parameter goes
+back on its line.  Of 1,260 generated signatures and function types with struct results, main formats 189
+differently a second time and binate `de0af0686` 12, all signatures (9 of them as main does): since that change a
+function type's results are measured with the structs in them on one line (structsOneLine).  Measuring a signature's
+own results so too fixes all 12 but reverses TestStructTypeMeasuredByItsFirstLine's rule (a signature whose struct
+result the source wrote over lines would leave room for its one-line form, and its parameters could wrap for
+it); the user kept the rule (2026-11-24, "Function types only (Recommended)").
 
 ### bnfmt lets an array length run past the cap by the `]` and element type after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
 
