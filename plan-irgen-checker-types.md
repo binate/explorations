@@ -646,7 +646,10 @@ IR-gen cannot map is an internal error, never `int`.
        the REPL e2e green.  Still read by spelling: IR-gen's own syntax (MakeInitAssignStmt for bnc's package
        init and the REPL's initializers, the REPL's MakeZeroAssignStmts) and the record-less type fallbacks
        (resolveTypeExprFromSyntax, exprToTypeExpr).  Emitting those two assignments as direct stores and
-       deleting the by-spelling resolvers (~320 lines; "option B") awaits the user's decision.
+       deleting the by-spelling resolvers (~320 lines; "option B") is 7c-4.
+     - 7c-4 IN PROGRESS (work-6, 2026-11-24; user: "yes"): IR-gen's own syntax goes (the initializer and zero
+       assignments become direct stores), a name or type with no record is an internal error, and the
+       by-spelling resolvers go.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
