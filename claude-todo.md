@@ -589,7 +589,7 @@ are 4 bytes.  arm32's shared spill area at -O2 is 70,360 bytes of irgen's frames
 storing and loading 4 bytes, 8-byte values (an int64 pair, a float64) keeping 8-aligned slots -- could save up to
 half of it.  Measure the share of 4-byte values first.
 
-### Native: an aggregate parameter with a data region fills a spill slot nothing reads — 🔴 OPEN (found 2026-11-24, work-3)
+### Native: an aggregate parameter with a data region fills a spill slot nothing reads — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "then do the 2 follow-ups") (found 2026-11-24, work-3)
 
 A parameter whose aggregate bytes arrive in registers gets a data region (PlanFrame's parameter loop), and its
 value is the region's address -- getOperand resolves LookupAlloc before a spill slot.  Yet every parameter keeps an
