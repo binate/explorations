@@ -3120,6 +3120,17 @@ body flushes them (its doc says so).  Fix: claim them in the head, as a type ass
 (`y := z. /* a */ (/* b */ T /* c */)` prints `z.(/* a */ /* b */ T /* c */)`, and a line comment after its `(`
 continues the type on a line two tabs in).
 
+### bnfmt formats a signature whose one-line struct result expands after the `)` differently a second time — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, a sweep of signatures with long results, working on the parameter-list width entry; pre-existing, main the same)
+
+`func f(a int, <45 n's> Tttt) struct { a <54 A's> } {` / `return nil` / `}`: the parameter list leaves room for
+the results' one-line form (sigTailLen, print_sig.bn), which can follow a `)` one byte past the continuation column,
+so the second parameter moves to a continuation line; the struct then does not fit after the `)` where it lands and
+expands over lines.  A second format reads the struct over lines, which it keeps (a struct's layout follows its
+source), so the list leaves room for its first line, ` struct {`, and the parameter goes back to the first line.
+12 of 600 generated signatures with long results do this, on main and with the change that lays a type in a
+parameter list out where it goes.  Fix: measure the struct alike in both formats -- by its one-line form when it has
+one, as that change measures the results' lists -- so it expands only where that form does not fit.
+
 ### bnfmt lets an array length run past the cap by the `]` and element type after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
 
 An array type's length wraps only when the length itself passes the cap: printArrayLen (print_type.bn) prints it with
