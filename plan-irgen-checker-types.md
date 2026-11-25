@@ -650,6 +650,17 @@ IR-gen cannot map is an internal error, never `int`.
      - 7c-4 IN PROGRESS (work-6, 2026-11-24; user: "yes"): IR-gen's own syntax goes (the initializer and zero
        assignments become direct stores), a name or type with no record is an internal error, and the
        by-spelling resolvers go.
+       - Value side DONE (binate 85f09a605, 2026-11-25): GenGlobalInitFunc takes the declarations and
+         stores each initializer (or, with none, the type's zero value, releasing the old one) into the
+         global its declaration names; MakeInitAssignStmt, MakeZeroAssignStmts and MakeInitExprStmt go.
+         An identifier with no record is an internal error (noRecordICE); a member, generic-head or
+         instance query with no record answers none; lookupVar, bareGlobalIdx, findPackageConst,
+         methodExprName, instantiationHeadByName and the other by-spelling value resolvers go.  A probe of
+         every by-spelling read over the three codegen-ab corpora, the VM multi-package tests and the
+         REPL e2e found only those two assignments, and no type read from syntax.  Package-init IR
+         unchanged (codegen-ab, all three corpora).
+       - Type side next: a TypeExpr with no record is an internal error; resolveTypeExprFromSyntax,
+         exprToTypeExpr, the blank-binder receiver copy and the helpers only they use go.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
