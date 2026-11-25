@@ -1,3 +1,14 @@
+### Native: an aggregate parameter with a data region filled a spill slot nothing read — DONE (binate `b62b7972c`, 2026-11-24, work-3; user: "then do the 2 follow-ups")
+
+PlanFrame gives an aggregate parameter whose bytes arrive in registers (a data region) no spill slot, and the
+prologues no longer store the region's address: aarch64's GP and HFA register cases, x64's register case, arm32's
+core-register and hard-float HFA cases.  The review of the first version found arm32's hard-float HFA prologue
+still storing into the removed slot (every function taking an HFA in VFP registers would have failed to compile;
+the HFA unit tests built their frames by hand); new tests take the frame from PlanFrame on each backend.  Total
+stack at -O2, before / after: aarch64 parser 72,752 / 72,656, irgen 273,104 / 270,480, check 527,936 / 524,752;
+x86-64 74,216 / 74,120, 266,008 / 263,352, 520,568 / 517,688; arm32 57,480 / 57,368, 242,248 / 240,392, 454,272 /
+451,600.  Conformance subset (511) on native aa64, x64, arm32 bare metal and arm32 Linux hard-float: 0 failed.
+
 ### The lazy-spill cursor recomputed the GP allocator's liveness -- a second full GP pass per function — DONE (binate `ae58a8108`, 2026-11-24, work-3; user: "go ahead")
 
 AllocateRegisters keeps its LivenessInfo on the RegMap, and NewLiveCursor reads it when it was computed for the

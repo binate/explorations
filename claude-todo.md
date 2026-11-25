@@ -589,18 +589,6 @@ are 4 bytes.  arm32's shared spill area at -O2 is 70,360 bytes of irgen's frames
 storing and loading 4 bytes, 8-byte values (an int64 pair, a float64) keeping 8-aligned slots -- could save up to
 half of it.  Measure the share of 4-byte values first.
 
-### Native: an aggregate parameter with a data region fills a spill slot nothing reads — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "then do the 2 follow-ups") (found 2026-11-24, work-3)
-
-A parameter whose aggregate bytes arrive in registers gets a data region (PlanFrame's parameter loop), and its
-value is the region's address -- getOperand resolves LookupAlloc before a spill slot.  Yet every parameter keeps an
-8-byte spill slot, and the prologue stores the region's address into it (aarch64's emitParamAddrToSpillAA64,
-x64_emit_params.bn's aggregate-register path, arm32's writeAggParamSpillPtr): an add / lea and a store per such
-parameter, never read.  A parameter whose bytes arrive in memory the callee owns, or by pointer, has no region and
-does use its slot.  Dropping the slot and the store where the parameter has a region saves 8 bytes of frame and two
-instructions of prologue per such parameter; check every NeedSpill of a parameter first (the homed-parameter
-reloads take only scalars).  Found reviewing the region-owner slots (values, 2026-11-24), which leave parameters as
-they were.
-
 ### Neither backend probes the stack for a large frame — a frame past the guard page can step over it — 🔴 OPEN MAJOR (found 2026-10-18, work-1, review of the native aa64 16 MiB fix; pre-existing; needs a decision)
 
 A function's prologue moves SP down by its whole frame in one step (native: `sub sp, sp, #frame`, now also past 16
