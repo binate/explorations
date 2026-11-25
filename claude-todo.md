@@ -567,7 +567,7 @@ runs, which matches the compiler for `switch` (unverified for `if`) — and give
 statement the same answer (each evaluation's temporaries); then state it in §9.7 / §18.4 `mem.temporary`, with
 a conformance test.
 
-### The lazy-spill cursor recomputes the GP allocator's liveness -- a second full GP pass per function — 🔴 OPEN (found 2026-11-22, work-3, review of binate `61ab9d237`)
+### The lazy-spill cursor recomputes the GP allocator's liveness -- a second full GP pass per function — 🟡 IN PROGRESS (claimed 2026-11-24, work-3; user: "go ahead") (found 2026-11-22, work-3, review of binate `61ab9d237`)
 
 Each native backend's emit_func builds a LiveCursor (RegMap.NewLiveCursor) after PlanFrame with the same function,
 the same fusable set (UnionFusable(rm.FusableGep, rm.FusableFieldGep)), class and word size as AllocateRegisters'
