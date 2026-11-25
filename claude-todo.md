@@ -2867,8 +2867,8 @@ give them the value-argument builtins' wrapping and comments.
 The front end's per-declaration lists and scans are linear since binate `84fcd9281` / `3f5ed5e34`; a package's
 descriptor, `.bni` export marks, init body, globals and function-value triples since `191656e51`..`2bf8681b9`; the
 variables' initialization order since `57682da11`; Module.Globals and IR-gen's lookups of a package variable's
-global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6` (claude-todo-done.md).  What is
-left grows with a package's number of declarations elsewhere:
+global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`; the hidden globals' names since
+`138221910` (claude-todo-done.md).  What is left grows with a package's number of declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl / findConstDecl search the
   declarations by name (a `.bni` constant's declared type `int` searches them all), and ConstResolved /
   ConstResolving, a `.bni`'s TypesResolving / BniTypesResolved and enterBniDeclResolution's list are appended by
@@ -2882,9 +2882,6 @@ left grows with a package's number of declarations elsewhere:
   and slices.Append) and LLVM codegen's funcRetTypes (emit.bn, slices.Append per function): a ring of named
   managed-slices with a drop site per type, 0.39 s at 2,000 types, 3.8 s at 8,000, 14.7 s at 16,000 (user,
   before the front-end step; ~5% in the pending helper lists);
-- IR-gen's newPackageStaticSlot (irgen/gen_slice_lit.bn) names each package-level raw-slice literal's backing
-  (`__rawslice_backing_<k>`) by counting the globals with that prefix: quadratic in a package's such literals (found
-  2026-11-23 by the review of the Globals vec; a per-prefix counter on the module would do).
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)

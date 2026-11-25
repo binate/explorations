@@ -31,6 +31,16 @@ comment across more than one token, as tests pin (`cast(int /* c */, y)` printin
 emitTrailingCommentBefore stops at a pending comment on an earlier line, one no gap claimed; the probe found such
 comments only inside `.(type)`.
 
+### Checking is quadratic in a package's number of declarations: the hidden package globals' names -- DONE (binate `138221910`, 2026-11-24, work-1; user: "Land it"; the rest of the entry stays open)
+
+newPackageStaticSlot (irgen/gen_slice_lit.bn) named each package-level raw-slice literal's backing and each closure
+record `<prefix><k>` with k counted by a walk of every global.  It counts on from where its last count of the prefix
+ended (globalsWithPrefix, GenCtx.GlobalPrefixCounts), unless the global that count ended at has moved (a cut: the
+REPL's rollback; no global is added twice), when it counts from the start; ShadowReplGlobal's in-place rename drops
+the counts.  8,000 package-level raw-slice literals 0.55-0.58 s from 0.92-1.04 s, the same output; cmd/bnc's LLVM IR
+on 3 targets and all 2,998 corpus programs identical to main's; the review found no problem, and its two test cases
+(a cut short of the count; a rename into the prefix) are in TestGlobalsWithPrefix.
+
 ### Native: a region-owning aggregate value's pointer slot was never read, and its store at the definition wasted — DONE (binate `6acd50b71`, 2026-11-24, work-3; user: "go ahead")
 
 An aggregate value with bytes of its own (a data region, or the slot a call writes its result into) now has no
