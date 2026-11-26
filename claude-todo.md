@@ -1388,7 +1388,7 @@ slot is never written or read.  Let the backend say whether it stashes the targe
 on the RegMap, as it sets the fold sets), and give the slot only when it does; on x64 the void call's slot could
 share by its one position like the owner's.
 
-### Native PlanFrame: check that every value counted as owning its bytes got them — 🔴 OPEN (found 2026-11-24, work-3, review of the region-owner slots)
+### Native PlanFrame: check that every value counted as owning its bytes got them — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the region-owner slots)
 
 regionPlan.owns decides which values get no spill slot (needsSpillSlot); their bytes come from regions laid down
 later (placeSharedRegions, placeCallResults).  If the two ever disagree -- an owner left with neither a region nor
