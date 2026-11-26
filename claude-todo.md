@@ -7,19 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM unit test TestNoLeakAcrossVMLifecycle red on main since binate `061119420`: the module's function index, built inside the test's window, reads as a VM leak — 🟡 IN PROGRESS (claimed 2026-11-25, work-6) (found 2026-11-25, work-6, validating 7c-4's type side; fails at binate `721856a92` and `85f09a605`, passes at `7f675ac53`; not a leak)
-
-- **Symptom:** `pkg/binate/vm`'s TestNoLeakAcrossVMLifecycle fails ("VM lifecycle leaked raw blocks:
-  rt.LiveBlocks() did not return to baseline") from `061119420` (ir: LookupModuleFunc finds a function through
-  an index of Funcs) on; it passes at its parent `7f675ac53`.
-- **Cause:** lowering the module (`NewVM` + `LowerModule`, the only code inside the test's `rt.LiveBlocks()`
-  window) builds `m.FuncIndex` again (LookupModuleFunc rebuilds it when it does not cover `m.Funcs`), and the
-  module, which the test keeps alive past the window, owns it.  With the index built before the window
-  (`ir.LookupModuleFunc(m, "main")` at the end of the test's `optimizeOutsideWindow`) the test passes: the
-  blocks are the module's index, not the VM's.
-- **Fix:** the test builds the module's index before the window opens, as `optimizeOutsideWindow` already runs
-  the passes there (they grow the module too).
-
 ### VM: a stack overflow in a plain call during destruction panics "recoverable fault with no cleanup pad (lowering bug)" — 🔴 OPEN (minor: a misleading diagnostic; found 2026-11-03, work-1, review of the queued-destruction change; reproduced with bni from binate `311d4b282`; pre-existing)
 
 Freeing a long chain through managed-slices (`type Cell struct { rest @[]Cell; v int }`, 300,000 links, the last

@@ -1,3 +1,15 @@
+### VM unit test TestNoLeakAcrossVMLifecycle red on main since binate `061119420`: the module's function index, built inside the test's window, read as a VM leak — DONE (binate `32d81ec17`, 2026-11-25, work-6; landed on "wait 4 minutes, then land; then continue") (found 2026-11-25, work-6, validating 7c-4's type side; fails at binate `721856a92` and `85f09a605`, passes at `7f675ac53`; not a leak)
+
+- **Symptom:** `pkg/binate/vm`'s TestNoLeakAcrossVMLifecycle failed ("VM lifecycle leaked raw blocks:
+  rt.LiveBlocks() did not return to baseline") from `061119420` (ir: LookupModuleFunc finds a function through
+  an index of Funcs) on; it passed at its parent `7f675ac53`.
+- **Cause:** lowering the module (`NewVM` + `LowerModule`, the only code inside the test's `rt.LiveBlocks()`
+  window) built `m.FuncIndex` again (LookupModuleFunc rebuilds it when it does not cover `m.Funcs`), and the
+  module, which the test keeps alive past the window, owns it.  The blocks were the module's index, not the VM's.
+- **Resolution:** binate `32d81ec17` -- the test's `optimizeOutsideWindow` builds the module's index
+  (`ir.LookupModuleFunc(m, "main")`) after the passes, before the window opens, as it already ran the passes
+  there (they grow the module too).  `pkg/binate/vm` 499 passed.
+
 ### Whether a generic instance's type argument is held to the size limit differed by kind — DONE (binate `721856a92`, docs `455c2df`, 2026-11-25, temp-5; decided 2026-11-24, user: "It seems like we should count it, right?"; landed on "wait 12 minutes, then land") (found 2026-11-18, temp-5, review of the dependent-error drop for abstract and unnamed instances)
 
 `type.layout.max-size` rejects a program that forms a type larger than the target's `int` allows: "a declared

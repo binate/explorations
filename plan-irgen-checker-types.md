@@ -647,7 +647,7 @@ IR-gen cannot map is an internal error, never `int`.
        init and the REPL's initializers, the REPL's MakeZeroAssignStmts) and the record-less type fallbacks
        (resolveTypeExprFromSyntax, exprToTypeExpr).  Emitting those two assignments as direct stores and
        deleting the by-spelling resolvers (~320 lines; "option B") is 7c-4.
-     - 7c-4 IN PROGRESS (work-6, 2026-11-24; user: "yes"): IR-gen's own syntax goes (the initializer and zero
+     - 7c-4 DONE (work-6, 2026-11-24 to 2026-11-25; user: "yes"): IR-gen's own syntax goes (the initializer and zero
        assignments become direct stores), a name or type with no record is an internal error, and the
        by-spelling resolvers go.
        - Value side DONE (binate 85f09a605, 2026-11-25): GenGlobalInitFunc takes the declarations and
@@ -659,8 +659,16 @@ IR-gen cannot map is an internal error, never `int`.
          every by-spelling read over the three codegen-ab corpora, the VM multi-package tests and the
          REPL e2e found only those two assignments, and no type read from syntax.  Package-init IR
          unchanged (codegen-ab, all three corpora).
-       - Type side next: a TypeExpr with no record is an internal error; resolveTypeExprFromSyntax,
-         exprToTypeExpr, the blank-binder receiver copy and the helpers only they use go.
+       - Type side DONE (binate 0793b3b1a, 2026-11-25): a type expression or type argument with no record
+         is an internal error (noTypeRecordICE); resolveTypeExprFromSyntax, exprToTypeExpr, the blank-binder
+         receiver copy, the interface-name and bare-name readers (ifaceTypeForName, moduleOwnType,
+         bareIfacePkg, the shadowing scan), canonicalIfaceType and the generic type-parameter binding
+         (CurrentTypeParamNames / Types and its save / restores) go, about 1000 lines: instances are
+         generated from the checker's copies, whose records are concrete.  Every module's objects unchanged
+         (codegen-ab, all three corpora); VM multi-package conformance 362, REPL e2e 174, irgen 859.  Five
+         constant-folding unit tests that built unchecked syntax now check their programs.  Still read by
+         name, for 5c-2: ifaceRefKeyByName, instantiatedAliasTarget, implRecvKeyByName and the
+         homedQualifier uses.
    Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
    checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
    hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
