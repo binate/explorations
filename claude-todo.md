@@ -1229,7 +1229,7 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 - Cause: unknown; a miss recorded with an empty key (captureMissing, check_pending.bn) is the likely path.
 - Fix: reject the declaration with the error a file gets.  Test: an e2e/repl.sh case of the session above.
 
-### IR-gen: an alias of an opaque type gets a destructor of its own — 🔴 OPEN MINOR (dead definitions and unreferenced extern declarations; found 2026-11-26, work-6, review of plan-irgen-checker-types 5c-2c; pre-existing on main as of binate `20871c49a`)
+### IR-gen: an alias of an opaque type gets a destructor of its own — 🟡 CLAIMED MINOR (2026-11-26, work-6; to do after plan-irgen-checker-types 5c-2; user: "you should take care of that bug after 5c-2") (dead definitions and unreferenced extern declarations; found 2026-11-26, work-6, review of plan-irgen-checker-types 5c-2c; pre-existing on main as of binate `20871c49a`)
 
 - **Symptom**: generateOpaqueNamedDtors (pkg/binate/irgen/gen_dtor_opaque.bn) walks Module.TypeAliases and
   takes every entry whose type is an opaque named type -- alias entries included -- as an opaque type of its own:
