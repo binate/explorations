@@ -197,6 +197,20 @@ todo for 4, though we've already done a bunch of that (not sure if it's regresse
 be a tradeoff between execution perf and load latency)"): re-measure int-int 001_hello's CPU and its load phases
 against the 10-28 numbers above to see whether the load has regressed since, and weigh the load latency the VM
 lowering's IR passes cost the double VM against the execution speed they buy.
+2026-11-26 (work-3), the last completed runs (unit 45668153340 at 85f09a605 and 45727539900 at 2b9f00809;
+conformance 45668152946 and 45727539888): still red.  (1) Every unit lane failed vm's TestNoLeakAcrossVMLifecycle:
+binate `061119420` builds Module.FuncIndex on the first LookupModuleFunc, inside the test's window -- fixed by
+another session, binate `32d81ec17`.  (2) One single-VM shard per run (builder-comp-int, builder-comp-comp-int) is
+cut ~24 min into check, whose other shards take 10-17 s: check's TestUnnamedBuildKeepsLimits (binate `8eafd6f20`,
+landed after the last green run, 11-18) takes 1912 s on the single VM locally (23 s compiled); check's other 2098
+tests take ~80 s.  It drives the instance-build limits, like the tests the VM lanes already skip, and is on no skip
+list.  (3) One int-int unit shard per run hits its 60-min cap.  The slowest tests there (CI's timestamps):
+asm/x64/avx's TestTableShape 1192 s (avx and optab, new 11-24, have no int-int skip-pkg marker, unlike every other
+asm/* package), check's five TestIfaceLadder* (320-460 s each; 1-5 s on the single VM), irgen's
+TestSharedAliasTypesMapOnce 176 s. (4) Unit lanes over their 30-min caps as a whole: comp-comp (its tests 1233 s:
+irgen 212, check 146, after the gen1 and gen2 builds), arm32 Linux (1552 s: irgen 572, check 164, format 143) and
+bare metal (1426 s: format 462, check 352). (5) Conformance: int-int 3-5 of 10 shards at the 60-min cap per run;
+comp-comp-comp and arm32 Linux at 30.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
