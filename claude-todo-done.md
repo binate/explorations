@@ -10,6 +10,17 @@
   (`ir.LookupModuleFunc(m, "main")`) after the passes, before the window opens, as it already ran the passes
   there (they grow the module too).  `pkg/binate/vm` 499 passed.
 
+### Checking is quadratic in a package's number of declarations: ConstResolving / ConstResolved -- DONE (binate `ca2b940a7`, 2026-11-25, work-1; user: "Land it"; the rest of the entry stays open)
+
+The by-name walk's stack of constants being resolved and list of constants resolved (Checker.ConstResolving /
+ConstResolved) were copy-appended lists searched with nameInList.  They are a nameList (check/check_name_list.bn:
+the names in a vec, a count per name in a table whose value owns the name its key borrows).  A 20,000-constant chain
+0.21-0.22 s from 2.07-2.39 s (5.5-6.1 s before `2b9f00809`); cmd/bnc's LLVM IR on 3 targets and all 2,999 corpus
+programs identical to main's; bnlint-self clean.  The review found the first version re-`Put`ting a count with the
+entry being popped (a table's Put keeps the key it is given: a key over freed bytes, which the checker never reaches
+but the unit test did) -- fixed before landing, lesson in CLAUDE.md -- and its 465-input differential found no
+difference.  Tests: TestNameList.
+
 ### Whether a generic instance's type argument is held to the size limit differed by kind — DONE (binate `721856a92`, docs `455c2df`, 2026-11-25, temp-5; decided 2026-11-24, user: "It seems like we should count it, right?"; landed on "wait 12 minutes, then land") (found 2026-11-18, temp-5, review of the dependent-error drop for abstract and unnamed instances)
 
 `type.layout.max-size` rejects a program that forms a type larger than the target's `int` allows: "a declared
