@@ -488,7 +488,22 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   the shifts by an immediate of memory, broadcasts from a general register, the three-operand vpermq / vpermpd,
   vmovd between XMM registers, and the seven names that take {vex} here).
 
-Next: stage 5, EVEX (AVX-512, asm/x64/avx512): masks k0-k7 with merging / zeroing, broadcast, embedded rounding
-and SAE, the compressed disp8*N, the 32 vector registers (XMM16..31 at 48..63, YMM16..31 at 112..127, ZMM;
-x64.Operand.Vsib for the EVEX gathers and scatters), the {evex} pseudo-prefix (user 2026-11-18), and the seven
-names clang encodes as EVEX by default.
+- Stage 5a (EVEX infrastructure, the mask instructions, AVX's floating point as EVEX) — landed binate
+  `3118536cc` (2026-11-25; user: "wait 4 minutes, then land"): asm/x64/evex (Emit, the 62 prefix; maps 5 / 6);
+  x64.Operand.Mask / Zero / Bcst, OP_ROUND (x64.Round), SZ512, EmitModRMN (disp8*N); asm.Assembler.X64EvexDone;
+  avx.Xmm / Ymm (0..31) / Zmm / K with XMM16 = 48, YMM16 = 112, ZMM0 = 128, K0 = 160.  The avx table's EVEX lines
+  (e0 / e1 / e2 and a decorations token: k, z, b<bits>) follow a mnemonic's VEX lines in the same part; mask classes
+  k / h / u / w, rounding O and SAE N, optab's G32 / G64 / Y32.  VEX where a VEX form fits, else the first EVEX
+  form, as clang; {evex} is X64Vex 4 (the last of {vex} .. {evex} counts).  282 EVEX lines (the arithmetic and move
+  parts, from clang's encodings via avx/genevex.py, genevexB.py and rowsevex.py) and avx_table_mask.bn (63 forms of
+  the 51 k instructions, VEX).  Parser: the registers, `zmmword ptr`, decorations after an operand, rounding
+  operands, {evex}.  Kept differences, as GNU as: {z} without a write mask (clang drops it), {z} after a later
+  operand (clang ignores it), an immediate as the rounding mode (clang reads `vaddps zmm0, zmm1, zmm2, 1` as
+  {rd-sae}), {rn-SAE} (clang takes `sae` in any case after the dash).  {evex} kmov (APX's EVEX form) waits for stage
+  6.  Of 19,438 probe lines all but 306 agree with clang (those: the kept differences, `{evex}` before forms not
+  here yet, three recorded differences); the 242,511-line v-sweep gained no difference; a review's sweep of every
+  table line (44,162) found no bytes that differ.
+
+Next: stage 5b, AVX-512F / VL / DQ's floating point new to EVEX (vblendm, vcompress / vexpand, vfixupimm, vgetexp /
+vgetmant, vrndscale, vscalef, vrcp14 / vrsqrt14, the unsigned converts, vfpclass, vrange / vreduce) and FMA's EVEX
+forms; the seven names EVEX by default wait for 5d.
