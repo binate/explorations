@@ -375,6 +375,22 @@ Fix (to design): a read of a constant being resolved where its value is not need
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
 
+### A type read in its own array length where its value is not needed is checked with no underlying: an ill-typed literal there is accepted — 🔴 OPEN (minor: ill-typed code that is never compiled accepted; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; reproduced on binate main `6ec2bc17e`; pre-existing)
+
+With `func f2(x T) [3]int`, `type T [len(f2(T{true}))]int` compiles (T is a `[3]int`), though `T{true}` gives an int
+element a bool: the literal is checked against T while T is collected, with no underlying, and never again.  A struct
+T's `T{q: true}` likewise, and plan-placeholder-reads.md's e1 with `T{true}` for `T{}`, declared in another order.  Fix:
+once T has its underlying, check again what read T where T's value was not needed, as that plan's section 3.6 does for
+a constant being resolved (whether this goes into that plan is for the user).  Test: an error test of t1 (xfailed until
+the fix).
+
+### A function read in the array length of a variable its signature needs is "undefined" — 🔴 OPEN (minor: a valid program rejected, with a wrong message; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; reproduced on binate main `6ec2bc17e`; pre-existing)
+
+`func f(y [len(V)]int) [3]int` with `var V [len(f([3]int{}))]int` is "undefined: f".  V's length needs only f's result
+type, so V is a `[3]int` and f's parameter a `[3]int` (spec decl.var.type-acyclic).  f's signature is being defined
+when V's length reads f.  With V declared first it is "variable type cycle involving `V`" (the entry above on a length
+"blamed as its type cycle").  Fix: as for the type in the entry above.  Test: a run test of k5 (xfailed until the fix).
+
 ### A `bit_cast` whose operand's layout is still being built skips its size check: an ill-sized `bit_cast` in an array length is accepted — 🔴 OPEN (minor: ill-typed code that is never compiled accepted; found 2026-11-04, temp-5, review of the placeholder-reads decisions; reproduced on binate main `b52e54139`; pre-existing)
 
 `var V S` with `type S struct { y uint8; x [len(bit_cast([8]uint8, V))]uint8 }` compiles and prints 8 and 9: a
