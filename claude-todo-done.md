@@ -20,6 +20,16 @@ Confirmed on CI (unit runs 45668153340 and 45727539900, 2026-11-25 / 26): the ar
 and runs its tests (86 packages passed), and the bare-metal lane links and runs its tests.  Both are now cut at
 their 30-min caps by the lanes' length, which the slow-lanes entry tracks.
 
+### Checking is quadratic in a package's number of declarations: the batch's on-demand variable and function lists -- DONE (binate `f1cc83359`, 2026-11-25, work-1; user: "Land it"; the rest of the entry stays open)
+
+VarsResolving / VarsHeadTyping / VarsChecking / FuncsDefining (stacks), VarsDefined (filtered) and FuncsDefined
+(truncated to a mark) were copy-appended lists searched with declInList.  They are declSets
+(check/check_decl_set.bn, which gained removeAll / lastIndex / truncate / items; its pop panics when empty),
+VarsCheckingLens a vec, a `.bni` build's FuncsDefining a nameList.  20,000 functions in a chain 1.09-1.18 s from
+5.12-5.71 s; 20,000 variables 0.49-0.50 s from 3.93-4.16 s; cmd/bnc's LLVM IR on 3 targets and all 2,999 corpus
+programs identical to main's; bnlint-self clean; the review's 40 probes identical.  Tests:
+TestDeclSetRemoveTruncate.
+
 ### bnfmt did not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly` — DONE (binate `f1194e7e2`, 2026-11-25, temp-4; user: "yes, continue" (the entry's two remaining breaks), landed on "wait 3 minutes, then land") (LOW; found 2026-11-14, temp-4, review of the comments inside types; the types' lists wrapping where they go done in binate `de0af0686`)
 
 `func g(<61 n's> [/* comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` printed its first

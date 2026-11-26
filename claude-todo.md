@@ -2862,10 +2862,10 @@ declarations elsewhere:
 - the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl search the declarations by name (a
   `.bni` constant's declared type `int` searches them all), and a `.bni`'s TypesResolving / BniTypesResolved are
   appended by copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni`
-  variable chain is 6,000 long, short of where the old recursion crashed (~12,000); the batch's on-demand lists
-  (VarsChecking, FuncsDefined, FuncsDefining: declInList over slices.Append) the same way.  (The constants' lists,
+  variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  (The constants' lists,
   findConstDecl and both declaration-start stacks are linear since `2b9f00809`, ConstResolving / ConstResolved
-  since `ca2b940a7`: a 20,000-constant chain 0.2 s, from 5.5-6.1 s.)
+  since `ca2b940a7`: a 20,000-constant chain 0.2 s, from 5.5-6.1 s; the batch's on-demand variable and function
+  lists since `f1cc83359`.)
 - the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way
   (LLVM's addStructDef, also named here, has an index since binate `7f47f5003`);
 Fix: index what these scan by name, and build the lists with vec.
