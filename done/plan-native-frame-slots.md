@@ -1,7 +1,8 @@
 # Native frames: share stack slots, and stop reserving slots nothing uses
 
-Status: IN PROGRESS (claimed 2026-11-10, work-3; the todo entry "The native-built compiler overflows its stack on
-types nested within the 1024 limit", fixes (a) and (b)).
+Status: DONE (2026-11-25, work-3).  The todo entry it was written for, "The native-built compiler overflows its stack
+on types nested within the 1024 limit" (fixes (a) and (b)), was closed on 2026-11-11 (claude-todo-done.md); its five
+steps and the follow-ups after them (Progress, below) landed through binate `be19f45f6`.
 
 ## Problem
 
