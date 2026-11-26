@@ -1,3 +1,32 @@
+### Diagnostics printed an array length that depends on a type parameter as 0 — DONE (binate `6ec2bc17e`, 2026-11-25, temp-5; decided 2026-11-25, user: "(b) seems fine"; landed on "wait 11 minutes, then land") (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
+
+In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
+(types.Type.ArrayLenDependent), and a type's name prints that 0 (types/type_name.bn). check's unit tests pin such
+messages, each for a type written with a dependent length: "cannot assign *G1[[8]uint16] to *G1[[0]uint8]" for `var
+p *G1[[sizeof(U)]uint8] = q` (TestIdentityStillRejectedAtDeclaration; TestDependentIdentityReadonlyStillRejected
+too), "type argument *readonly R[[0]uint8] does not satisfy constraint Eq[[8]uint8]" for `*readonly
+R[[sizeof(U)]uint8]` (TestDependentConstraintReadonlyReceiverStillRejected), and "type Box does not implement
+Eq[[0]uint16]" for `impl *Box[K] : Eq[[sizeof(K)]uint16]` (TestDependentImplCoverage). A constraint missed at a
+generic's declaration is named as the declaration writes it, with the generic's name (binate `2662d1207`).
+
+Why it needs a decision: identity does not compare dependent lengths (types_identical_walk.bn), so the generic
+instances formed from such types are one per placeholder, named when the first is formed (mangleInstantiatedName). A
+length's written text recorded on the array type would print correctly for a bare array, but a shared instance's
+name would show the first instance's text in every message about the others. Options: (a) record the written text on
+the array type and print it, accepting that a shared instance shows the first one's text (identity cannot compare
+the text: an implementing method's dependent array matches its interface's only because identity does not compare
+it, check_subst_walk.bn buildSubstOver); (b) print a dependent length as a mark that says it depends on type
+parameters (e.g. `[?]uint8`, which is not Binate syntax); (c) keep the 0. Test: the pinned messages, in the form
+chosen.
+Decided (2026-11-25), user: "(b) seems fine" -- a dependent length prints as `?` (`[?]uint8`).
+Resolution: binate `6ec2bc17e` writes a dependent length as `?` in both the display and the qualified name
+(types/type_name.bn writeTypeName): `*G1[[?]uint8]`.  A length that is 0 -- written so, or not known yet
+while a layout is collected -- still prints 0.  A generic instance formed from such a type is named with the
+mark (mangleInstantiatedName), so it no longer shares its name with an instance whose length really is 0; no
+symbol, RTTI name or IR sees it (IR-gen maps no dependent array).  The pinned check tests and conformance 205,
+208 and 213 now pin `?`, and TestDeferredCheckInWaitingResolutionNotGivenOut and
+TestOwnCheckOfInstanceNamedWaitingNotHeld also check that a generic's own check gives out no `Eq[[?]uint8]`.
+
 ### examples/files/README.md said "There is no `defer`" — DONE (examples `4ed1f24`, 2026-11-25, temp-4; user: "yes, to the other question") (LOW; found 2026-10-12, work-4, `defer { … }` step 1)
 
 `examples/files/README.md` said "every open in the tour has a matching close.  There is no `defer`; deterministic
