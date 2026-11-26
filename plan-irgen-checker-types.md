@@ -280,17 +280,25 @@ IR-gen cannot map is an internal error, never `int`.
        and the interpreter's shortName with them).  Every module's objects unchanged (codegen-ab: LLVM all
        three corpora, native multi + bnc); VM multi-package conformance 362, REPL e2e 174, irgen 858.  The
        review also found the "REPL: remove process-global session state" todo entry stale (moved to done).
-     - 5c-2c: registration order by written names goes: aliases map through their checker records
-       (irAliasFromChecker) whatever is registered, and named types are pre-registered, so the dependency walk
-       over bare names (gen_decl_order: typeExprBareNames, typeDeclDepNames, typeDeclWalk; the REPL's
-       genReplAliasDecls) registers in source order instead.  TypeAliases order reaches output only through
-       the opaque named dtors (named types, pre-registered in declaration order), so byte-identical.
+     - 5c-2c DONE (binate 0384a9f3b, 2026-11-26; user: "wait 12 minutes, then land"): type declarations
+       register in declaration order; the dependency walk over written names (gen_decl_walk.bn,
+       typeExprBareNames, typeDeclDepNames, registerModuleTypeDecl / registerPkgTypeDecl, genReplAliasDecls)
+       went.  Source order alone was not enough: the walk also kept a chain of aliases declared head first
+       linear (each mapping stops at the first registered alias), so the alias half of 5c-2e's lazy
+       registration came forward -- a pass notes its aliases as pending (pendAliasDecls,
+       GenCtx.PendingAliases) and irAliasFromChecker registers each pending alias it passes, deepest first
+       (registerPassedAliases).  Not byte-identical in general: a declaration naming a later alias now maps
+       its parts in written order, so generic instances (and their helpers) can be made in another order;
+       the corpora have no such declaration (codegen-ab identical: LLVM all three, native multi + bnc).  VM
+       multi-package conformance 362, REPL e2e 174, irgen 857.  The review found a pre-existing MINOR bug (an
+       alias of an opaque type gets a destructor of its own; claude-todo.md, claimed for after 5c-2).
      - 5c-2d: one registration routine for a package's type declarations, which the seven passes call
        (struct names, generic stashes, interface stubs, opaque forwards, named types and aliases,
        interfaces, struct fields), each registration once per (package, name).
      - 5c-2e: fields, underlyings, method sets from the checker's type of the declaration (its record), not
        its TypeExpr; then the mapper registers a named type / struct it meets unregistered from that type, so
-       no pass order leaves one nil (the pre-registration passes stay for declaration order).
+       no pass order leaves one nil (the pre-registration passes stay for declaration order).  The aliases'
+       half is done (5c-2c: registerPassedAliases).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
