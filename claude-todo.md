@@ -1404,6 +1404,17 @@ slot is never written or read.  Let the backend say whether it stashes the targe
 on the RegMap, as it sets the fold sets), and give the slot only when it does; on x64 the void call's slot could
 share by its one position like the owner's.
 
+### Native x64: an indirect call with no value id keeps its target nowhere — 🔴 OPEN (found 2026-11-26, work-3, review of the indirect-call slot change)
+
+x64 keeps an indirect call's target (R11) in the call's own spill slot while it places the arguments
+(`emitCallIndirect`, `emitCallFuncValue`, `emitCallIfaceMethod`), but only when `ins.ID >= 0`.  For an instruction
+with no value id, `emitCallFuncValue` and the interface call recompute the target after the argument loop, and
+`emitCallIndirect` does nothing: R11 is unprotected across `placeCallArgsX64`, and the CALL can jump to whatever
+the argument loop left there.  IR-gen gives every call a value id (`ir.NewInstr`; only non-call instructions come
+from `irbuild.NewVoidInstr`, with ID -1), so the branches are reached only by unit tests that hand-build calls with
+`ID = -1` (x64_call_indirect_test.bn, x64_dispatch_test.bn, ...).  Fix: take the slot unconditionally (`NeedSpill`,
+which fails loud when there is none), drop the recompute fallbacks, and give the unit tests' calls value ids.
+
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
 **x64 suite baseline (2026-09-24, host x86-64 Linux — a 4-vCPU Firecracker VM, Xeon @ 2.1GHz,
