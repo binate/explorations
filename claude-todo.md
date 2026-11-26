@@ -998,12 +998,15 @@ a pool entry able to carry a difference not fixed there, emitted as the data dir
 `.quad _e - _f` with `.subsections_via_symbols` (the word 4), where bnas (fixedDistance's subsections rule) writes
 a SUBTRACTOR pair; check that rule against clang on each architecture before changing either.
 
-### native: folded-away values still get PlanFrame slots — 🔴 OPEN, unclaimed (work-4's claim, riding the T6 LinearScan step, released 2026-10-12) (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, see the done log)
+### native: folded-away values still take part in LinearScan — 🔴 OPEN, unclaimed (found 2026-09-25; the dispatcher silent-return part DONE binate `d9e2d82b3`, PlanFrame's slots for them DONE binate `724184214`, see the done log)
 
-(`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  Still open: `PlanFrame`
-reserves a slot for every value, folded-away ones included (`native/common/common.bn` ~162, ~222) — wasted
-frame space (visible in the arm32 managed-slice destructor loops: the frame stays `sub sp,#128` after the
-folded constant's slot went unused); fixed together with dropping folded values from LinearScan.
+(`getOperand` fails loud on any fold-flagged id since `f0a7f78fe`, see done log.)  PlanFrame no longer gives a
+folded-away value a slot (needsSpillSlot, binate `724184214`).  Still open: the values a fold elides that the GP
+liveness counts as definitions -- a constant riding its users' immediates (FoldedImm), a branch-fused compare
+(FusedCmp), a tst-folded AND, a folded dtor handle -- get live intervals and registers in LinearScan, and
+AllocateRegisters drops their homes only after the scan (its home loop, regalloc_scan.bn), so during the scan each
+holds a register another value could have had.  Leave them out of the liveness or the scan, as fused GEPs already
+are (defIdOf), and check the lazy-spill cursor, which reads the same liveness.
 
 ### A raw interface box of a name-less pointee carries no owning slot-0 dtor — blocks `unsafe_cast` `*I -> @I` — 🔴 OPEN (filed 2026-10-17, work-3, split out of the entry below)
 
@@ -1360,6 +1363,43 @@ Binate — both the native and LLVM backends of the same source — against
 C/C++/Rust/Go/Java/Python on shared problems, so it feeds the native↔LLVM gap
 work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
 list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
+
+### Native arm32: the hidden sret slot and small allocas still take 8 bytes — 🔴 OPEN (found 2026-11-25, work-3, review of the arm32 slot sizes)
+
+PlanFrame reserves 8 bytes for the hidden sret slot (the caller's buffer pointer, SretSlotOff) and at least 8 for
+every OP_ALLOC (`if sz < 8 { sz = 8 }`, then roundUp8), scoped or not, on every target; on arm32 the sret pointer
+is a word and a 4-byte local needs 4.  Size them as binate `be19f45f6` sizes the spill slots -- by the target's
+word, 8-byte values 8-aligned, each area starting 8-aligned -- and check every arm32 access to an alloca and to the
+sret slot for its width first.  Measure the arm32 frame totals before and after.
+
+### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — 🔴 OPEN (found 2026-11-24, work-3, review of the aggregate-parameter slots)
+
+A zero-size aggregate parameter (a `struct{}`) gets no data region -- PlanFrame gives one only for a nonzero size
+-- so it keeps a spill slot, but every prologue skips it (aarch64_emit_params.bn's spillAggregateParamAA64,
+x64_emit_params.bn and arm32_spill_aggregate.bn return at size 0), so getOperand reads an uninitialised word as the
+value's address.  Nothing reads through a zero-size value, so it is likely harmless in practice, but it reads
+uninitialised memory and costs a slot.  Check how a zero-size aggregate instruction value (which also gets no
+region, planRegions) is represented, then either give the parameter no slot with an address of its own or write
+that address in the prologue, and cover it with a test that takes its frame from PlanFrame.
+
+### Native: indirect calls keep a slot that only x64 uses — 🔴 OPEN (found 2026-11-24, work-3, review of the region-owner slots)
+
+PlanFrame gives every indirect call (callconv.IsIndirectCallOp) a spill slot -- a void one included, which gets an
+unshared slot of its own (planSharedSpills skips void values), and one whose result owns a data region
+(needsSpillSlot's exception) -- because x64 keeps the call's target there while it places the arguments
+(x64_call_indirect.bn, x64_iface.bn).  aarch64 keeps the target in X17 and arm32 in IP, so on those targets the
+slot is never written or read.  Let the backend say whether it stashes the target there (a field the backend sets
+on the RegMap, as it sets the fold sets), and give the slot only when it does; on x64 the void call's slot could
+share by its one position like the owner's.
+
+### Native PlanFrame: check that every value counted as owning its bytes got them — 🔴 OPEN (found 2026-11-24, work-3, review of the region-owner slots)
+
+regionPlan.owns decides which values get no spill slot (needsSpillSlot); their bytes come from regions laid down
+later (placeSharedRegions, placeCallResults).  If the two ever disagree -- an owner left with neither a region nor
+a slot, as the review of binate `6acd50b71`'s first version found (a call stored into the returned local) -- the
+backend fails at emit time with a missing-slot error at the value's first use, far from the cause.  A check at the
+end of PlanFrame that every owner but an indirect call has a region (LookupAlloc >= 0) would report it where it
+happens; decide how it reports (an internal-error panic, or an error the backend surfaces).
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 

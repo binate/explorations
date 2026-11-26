@@ -1,3 +1,10 @@
+### native: folded-away values got PlanFrame slots — DONE (binate `724184214`, 2026-11-23, work-3)
+
+needsSpillSlot gives no spill slot to a value a fold elides (IsFoldedAway: a GEP folded into its load or store, a
+constant riding an immediate, a compare fused into its branch, a tst-folded AND, a folded dtor handle): its
+consumer takes it through the fold, so it has no result to store.  The open todo entry's remaining part -- the same
+values taking part in LinearScan -- stays open there.
+
 ### VM unit test TestNoLeakAcrossVMLifecycle red on main since binate `061119420`: the module's function index, built inside the test's window, read as a VM leak — DONE (binate `32d81ec17`, 2026-11-25, work-6; landed on "wait 4 minutes, then land; then continue") (found 2026-11-25, work-6, validating 7c-4's type side; fails at binate `721856a92` and `85f09a605`, passes at `7f675ac53`; not a leak)
 
 - **Symptom:** `pkg/binate/vm`'s TestNoLeakAcrossVMLifecycle failed ("VM lifecycle leaked raw blocks:
