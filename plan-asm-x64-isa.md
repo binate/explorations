@@ -504,6 +504,21 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   here yet, three recorded differences); the 242,511-line v-sweep gained no difference; a review's sweep of every
   table line (44,162) found no bytes that differ.
 
-Next: stage 5b, AVX-512F / VL / DQ's floating point new to EVEX (vblendm, vcompress / vexpand, vfixupimm, vgetexp /
-vgetmant, vrndscale, vscalef, vrcp14 / vrsqrt14, the unsigned converts, vfpclass, vrange / vreduce) and FMA's EVEX
-forms; the seven names EVEX by default wait for 5d.
+- Stage 5b (AVX-512F / VL / DQ floating point, FMA's EVEX forms) — landed binate `3d51db4e7` (2026-11-26; user:
+  "wait 4 minutes, then land; then continue"): 153 instructions' EVEX lines — avx_table_evex_fp.bn (a new part:
+  vblendm, the lane broadcasts / inserts / extracts / shuffles, vcompress / vexpand, the unsigned and 64-bit
+  converts, vfixupimm, vfpclass with its scalars, vgetexp / vgetmant, vpermi2 / t2 ps / pd, vrange / vreduce /
+  vrndscale, vrcp14 / vrsqrt14, vscalef), FMA's 60 (after their VEX lines), vcvtph2ps / vcvtps2ph, vpermps /
+  vpermpd.  The decorations take s<bits> (vcompress / vexpand's disp8 counts elements); zeroing on memory is refused
+  (clang); an ambiguous size names the sizes that fit.  Against clang 15,554 + 10,244 lines agree but the 229
+  immediates as rounding modes.  The stage-5 scope sweep tried a k destination only with ZMM / mask / memory
+  sources, so it missed names whose forms are `k, xmm, imm` and a few others; a re-sweep of its 237 never-accepted
+  names with phase A's shapes adds vfpclasssd / ss (5b, done), vfpclasssh and vcmpsh (5e), vpextrb .. q and vpinsrb
+  .. q (5c), and the y-suffixed vcvtneps2bf16y / vcvtph2bf8(s)y / vcvtph2hf8(s)y (5f).  Seen (pre-dates stage 5): an
+  unknown x64 mnemonic with three or more operands reports "unexpected token after the instruction's operands", not
+  "unknown instruction" (x64_instr.bn checks the line's end before the mnemonic; a reorder fixes it).
+
+Next: stage 5c, the integer instructions: AVX / AVX2's EVEX forms (the VEX table's integer parts, vmovd / vmovq,
+vpextr / vpinsr), and BW / DQ / CD / VBMI / VBMI2 / BITALG / VPOPCNTDQ / IFMA / VNNI / VP2INTERSECT (vpcmp with its
+predicates, vptestm, the down-converting vpmov, vpternlog, vpermi2 / t2, the i-variants of the lane broadcasts /
+inserts / extracts / shuffles, vmovdqa32 .., ...); the seven names EVEX by default wait for 5d.
