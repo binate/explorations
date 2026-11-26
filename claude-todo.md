@@ -2136,7 +2136,7 @@ covered by the single-VM and native lanes). Open:
 
 ## Documentation hygiene
 
-### examples/files/README.md says "There is no `defer`" — 🟢 LOW (found 2026-10-12, work-4, `defer { … }` step 1)
+### examples/files/README.md says "There is no `defer`" — 🟡 IN PROGRESS (claimed 2026-11-25, temp-4) 🟢 LOW (found 2026-10-12, work-4, `defer { … }` step 1)
 
 `examples/files/README.md:56`: "every open in the tour has a matching close. There is no `defer`;
 deterministic release is the language's answer".  Binate has `defer`, and the examples' pin, `bnc-0.0.17` since
@@ -3052,7 +3052,7 @@ literal, split where it lands) fixed these but left 4 non-idempotent probes (a f
 and 14 past the cap (nested type-argument lists), and merged short runs (`"k" "d"` to `"kd"`) -- the user chose
 the measure-only form.  A fix needs a measure of a split run that a second format reproduces.
 
-### bnfmt does not break a type-argument list nested in another — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, review of the deep slice nest fix; pre-existing, main does the same)
+### bnfmt does not break a type-argument list nested in another — 🟡 IN PROGRESS (claimed 2026-11-25, temp-4) 🟢 LOW (found 2026-11-11, temp-4, review of the deep slice nest fix; pre-existing, main does the same)
 
 In a generated probe, an asserted type in an `if` condition seven tabs in prints `@[]Box[p.Box[<a×12>, <d×14>,
 <a×9>], <a×16>, <m×23>]]) {` on one line, 108 wide: neither the outer nor the inner type-argument list wraps.  Not
