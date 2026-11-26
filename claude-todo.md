@@ -1096,7 +1096,7 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A main program of several files does not scope its imports per file: a file may use another file's import, and two files may not bind one name to different packages — 🔴 OPEN (minor: invalid programs accepted, valid ones rejected; found 2026-11-02, work-7, checking the import-once rule per file; reproduced with a compiler built from binate `7e61ac730`; pre-existing)
+### A main program of several files does not scope its imports per file: a file may use another file's import, and two files may not bind one name to different packages — 🟡 IN PROGRESS (claimed 2026-11-26, work-7/session; user: "I guess we can take 2. on next if it still applies"; both probes still reproduce on binate `1171cc92e`) (minor: invalid programs accepted, valid ones rejected; found 2026-11-02, work-7, checking the import-once rule per file; reproduced with a compiler built from binate `7e61ac730`; pre-existing)
 
 bnc and bni take a main program of several `.bn` files (`bnc a.bn b.bn`).  The loader merges them (LoadRoot /
 MergeFiles), and the checker checks the merge with `Check`, which registers every file's imports in one scope —
