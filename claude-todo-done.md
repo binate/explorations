@@ -1,3 +1,45 @@
+### REPL: remove process-global session state (multi-session blocker) -- DONE (binate `3ef73b244`, `098a85049`, 2026-06; found stale 2026-11-25; user: "and yes, move the entry to the done file")
+
+Both `pkg/binate/ir` globals the entry names are gone: `currentChecker` since binate `3ef73b244` (2026-06-16;
+the checker rides on the module, `m.Checker`, and `SetChecker` went), and the import alias map since `098a85049`
+(2026-06-19; a field of `@Module`, so `Save` / `RestoreAliasMapState` went too).  pkg/binate/ir and irgen keep no
+package-level variables.  Found stale on 2026-11-25 by the review of plan-irgen-checker-types.md's 5c-2b (the
+import list), which also dropped the REPL comment (repl/session.bn) that pointed here.  The entry as it stood:
+
+- **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
+  2026-06-16): the `ir` half below is increments 4–5 of that plan, which
+  covers the full compiler/VM global inventory, not just the REPL's two.
+  This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the
+  plan for verified ones.
+- **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
+  package vars instead of threading it through the session. v1 of the
+  embeddable refactor (above) lifts the cmd/bni-local ones into
+  `@ReplSession` but deliberately keeps **single live session per
+  process**, leaving two `pkg/binate/ir` globals in place.
+- **The globals**:
+  - cmd/bni-local (lifted into `@ReplSession` by Stage 1 of the
+    refactor): `replLoader`/`replRoot`/`replBniPaths`/`replProcessedPkgs`
+    (`cmd/bni/repl_import.bn:24-41`) and `replInitCounter`
+    (`cmd/bni/repl_decl.bn:411`).
+  - `pkg/binate/ir` process-globals (NOT lifted in v1, the real
+    multi-session blocker): `currentChecker` (`pkg/binate/ir/gen.bn:148`,
+    set via `ir.SetChecker`) and the import alias map
+    `importAliasNames`/`importAliasPaths` (`gen.bn:107/110`), with
+    `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`
+    (`repl_import.bn:101/146`).
+- **Why it matters**: single re-entrant session is unaffected (the ir
+  globals are set once and save/restored inside import turns as today).
+  But >1 concurrent embedded session in one process needs those globals
+  session-scoped (or save/restored at every `Step` boundary) — a
+  separate, larger change that must land BEFORE `pkg/binate/repl` can
+  honestly claim multi-session support.
+- **Guidance (applies now)**: **do not add any new REPL globals.** New
+  per-session state goes through `@ReplSession`. Adding a global "to keep
+  a signature stable" (the exact shortcut that created the current ones,
+  per `repl_import.bn:18-20`) is what this entry exists to stop.
+- **When**: only if multi-session embedding becomes a goal. Not needed
+  for wasm B1 (one worker = one session).
+
 ### CI: `ubuntu-latest` became Ubuntu 26.04 -- the arm32 Linux jobs could not install qemu-user-static, and bare-metal links failed on `.ARM.exidx` — DONE (binate `021ce946e`, `d5659d6bb`, `4af215fc6`, 2026-11-14, work-3; user: "We should do (b)"; confirmed on CI 2026-11-25)
 
 GitHub moved `ubuntu-latest` from ubuntu-24.04 (the green unit run 43269624621, 2026-11-12) to ubuntu-26.04 (runs from

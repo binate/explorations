@@ -3939,41 +3939,6 @@ satisfying `int`'s.  The `Self` arm (binate `2aaeb6013`) peels no `readonly` eit
 `5ba93bd`) says only a parameterized impl can match a type built from type parameters or `Self`, which reads as
 `readonly T` never satisfying: revise both with the decision.
 
-### REPL: remove process-global session state (multi-session blocker)
-- **Now owned by [`done/plan-embeddable-vm.md`](done/plan-embeddable-vm.md)** (scoped
-  2026-06-16): the `ir` half below is increments 4–5 of that plan, which
-  covers the full compiler/VM global inventory, not just the REPL's two.
-  This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the
-  plan for verified ones.
-- **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
-  package vars instead of threading it through the session. v1 of the
-  embeddable refactor (above) lifts the cmd/bni-local ones into
-  `@ReplSession` but deliberately keeps **single live session per
-  process**, leaving two `pkg/binate/ir` globals in place.
-- **The globals**:
-  - cmd/bni-local (lifted into `@ReplSession` by Stage 1 of the
-    refactor): `replLoader`/`replRoot`/`replBniPaths`/`replProcessedPkgs`
-    (`cmd/bni/repl_import.bn:24-41`) and `replInitCounter`
-    (`cmd/bni/repl_decl.bn:411`).
-  - `pkg/binate/ir` process-globals (NOT lifted in v1, the real
-    multi-session blocker): `currentChecker` (`pkg/binate/ir/gen.bn:148`,
-    set via `ir.SetChecker`) and the import alias map
-    `importAliasNames`/`importAliasPaths` (`gen.bn:107/110`), with
-    `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`
-    (`repl_import.bn:101/146`).
-- **Why it matters**: single re-entrant session is unaffected (the ir
-  globals are set once and save/restored inside import turns as today).
-  But >1 concurrent embedded session in one process needs those globals
-  session-scoped (or save/restored at every `Step` boundary) — a
-  separate, larger change that must land BEFORE `pkg/binate/repl` can
-  honestly claim multi-session support.
-- **Guidance (applies now)**: **do not add any new REPL globals.** New
-  per-session state goes through `@ReplSession`. Adding a global "to keep
-  a signature stable" (the exact shortcut that created the current ones,
-  per `repl_import.bn:18-20`) is what this entry exists to stop.
-- **When**: only if multi-session embedding becomes a goal. Not needed
-  for wasm B1 (one worker = one session).
-
 ### REPL — Tier-4 follow-ups + pretty-printer (all five tiers landed) — 🟡 OPEN (low priority)
 Residual (all five REPL tiers landed):
 - **Tier 4**: refcount-aware shadow warning (today fires unconditionally); forced-shadow escape hatch (syntax TBD per `claude-notes.md`).
