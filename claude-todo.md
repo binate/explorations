@@ -2875,9 +2875,13 @@ declarations elsewhere:
   findConstDecl and both declaration-start stacks are linear since `2b9f00809`, ConstResolving / ConstResolved
   since `ca2b940a7`: a 20,000-constant chain 0.2 s, from 5.5-6.1 s; the batch's on-demand variable and function
   lists since `f1cc83359`.)
-- the batch's remaining linear lists: VarsChecked, VarsCycled, VarsSelfRead, VarsDeferred (declInVec / declInList)
-  and IfacesCollected / IfacesCollecting; a `.bni` build's IfacesResolving / IfacesResolved.  (The batch's methods
-  lists are declSets since `1171cc92e`.)
+- interfaces: Checker.PendingIfaceDecls / PendingIfaceTypes are appended by copying and searched linearly by
+  declaration and by type (pendingIfaceType, batchIfaceDeclOf), Checker.Impls / PrivateImpls appended by copying
+  (recordImpl), the batch's IfacesCollected / IfacesCollecting searched linearly, a `.bni` build's IfacesResolving /
+  IfacesResolved too: 8,000 / 16,000 / 32,000 interfaces, each with a type and an impl, take 0.79 / 2.55 / 9.34 s.
+  (The batch's methods lists are declSets since `1171cc92e`, its checked / cycled / self-read / deferred variables
+  since `d10469049`.)
+- the parser's error list is appended by copying (Parser.addError): 16,000 parse errors took 8.8 s.
 - past the checker, a 32,000-method package (16,000 types with a method each, read by later variables' array
   lengths, then 16,000 more) spends about a quarter of its time in LLVM codegen's collectStructTypes, and grows
   superlinearly in FuncSigEq.Equal (irdata's function-signature table: hash collisions?) and in Scope.LookupLocal /

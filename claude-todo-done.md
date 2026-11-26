@@ -8,6 +8,14 @@ prints the probe 108 wide, and main wraps it.  Found fixed on 2026-11-25 in a ch
 `673604a04` pins it (TestTypeArgListNestedInAnotherWrapsWhereItGoes: `var v Pair[<F×40>, Box[Box[<a×12>, <d×14>,
 <a×9>], <a×16>, <m×30>]]`, whose inner list printed 102 wide before).
 
+### Checking is quadratic in a package's number of declarations: the batch's checked, cycled, self-read and deferred variables -- DONE (binate `d10469049`, 2026-11-26, work-1; user: "Land it"; the rest of the entry stays open)
+
+VarsChecked (every inferred-type variable the batch checks, searched once per variable) and VarsCycled /
+VarsSelfRead / VarsDeferred (appended by copying, searched linearly) are declSets, with a new at(i).  32,000 `var vi
+= i` 0.44-0.68 s from 2.23-4.20 s; 4,000 declared-type cycles and 4,000 inferred self-reads give the same
+diagnostics; cmd/bnc's LLVM IR on 3 targets and all 2,999 corpus programs identical to main's; bnlint-self clean;
+the review's probes and 78 related conformance tests identical.  Tests: TestDeclSetAt.
+
 ### Diagnostics printed an array length that depends on a type parameter as 0 — DONE (binate `6ec2bc17e`, 2026-11-25, temp-5; decided 2026-11-25, user: "(b) seems fine"; landed on "wait 11 minutes, then land") (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
