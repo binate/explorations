@@ -87,7 +87,7 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
 4. **VEX: AVX, AVX2, FMA, F16C** (`asm/x64/avx`): the 2- and 3-byte VEX prefixes, the 256-bit forms, gathers;
    and AMD's XOP vector instructions and FMA4, XOP-encoded (user 2026-11-16, below); the pseudo-prefixes
    `{vex}` / `{vex2}` / `{vex3}` (user 2026-11-18).
-5. **EVEX: AVX-512** (`asm/x64/avx512`): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
+5. **EVEX: AVX-512** (asm/x64/avx's table, the prefix in asm/x64/evex; user 2026-11-25): masks (k0-k7, merging / zeroing), broadcast, embedded rounding and SAE,
    the compressed disp8*N, the 32 vector registers; the `{evex}` pseudo-prefix (user 2026-11-18).
 6. **APX and AMX**: r16-r31 (REX2), the EVEX-promoted general-purpose forms (new data destination, no-flags),
    push2 / pop2, ccmp / ctest, cfcmov, the `{rex2}` / `{nf}` pseudo-prefixes (user 2026-11-18); the AMX tile
@@ -216,6 +216,21 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   avx and later avx512 import ("Shared leaf package (Recommended)").  A gather whose mask, index and destination
   registers are not all different is an error ("Reject (Recommended)"; #UD at run time; clang and GNU as warn), as
   the string-operand decision of 2026-11-14.
+- Stage 5 (user, 2026-11-25): in six commits ("Six commits (Recommended)"): 5a the EVEX infrastructure (the prefix
+  encoder, xmm16..31 / ymm16..31 / zmm0..31 and k0..k7, the decorations {k} {z} {1toN} {rn-sae} .. {sae}, the
+  compressed disp8*N, the VEX-or-EVEX choice as clang's: VEX where it fits, else EVEX or after {evex}), the 51
+  mask instructions (kand .. kxor), and the EVEX forms of AVX's floating point; 5b AVX-512F / VL / DQ's floating
+  point new to EVEX (vblendm, vcompress / vexpand, vfixupimm, vgetexp / vgetmant, vrndscale, vscalef, vrcp14 /
+  vrsqrt14, the unsigned converts, vfpclass, vrange / vreduce, vcmp into a mask) and FMA's EVEX forms; 5c integer
+  (AVX / AVX2's EVEX forms, BW / DQ / CD / VBMI / VBMI2 / BITALG / VPOPCNTDQ / IFMA / VNNI / VP2INTERSECT: vpcmp
+  with its predicates, vptestm, the down-converting vpmov, vpternlog, vpermi2 / t2, ...); 5d the gathers and
+  scatters with ZMM indexes, the EVEX crypto / GFNI forms, the seven names EVEX by default (vpdpbusd .., which
+  take {vex} until then), and Xeon Phi's ER / PF / 4FMAPS / 4VNNIW; 5e FP16 (maps 5 and 6); 5f AVX10.2 and BF16.
+  The EVEX rows extend asm/x64/avx's table and engine ("Extend asm/x64/avx (Recommended)"), the prefix encoder a
+  package asm/x64/evex beside asm/x64/vex, replacing the stage list's asm/x64/avx512.  Scope from clang's sweep
+  (every v-name and k-name with ZMM / XMM16+ / mask operands): about 830 names — 294 EVEX forms of the VEX
+  table's, 247 other AVX-512, 131 FP16, 65 AVX10.2 / BF16, 32 Xeon Phi, 8 gathers / scatters, 51 mask
+  instructions.
 
 ## Progress
 
