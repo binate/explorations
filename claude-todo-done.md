@@ -103,6 +103,11 @@ of `* /* c */` end 146 wide on their indentation (main prints them on one line).
 as no probe and no generated file showed them: an empty-results case in sigTailLen and a variadic case in
 typesCloseLeast.  A pre-existing off-by-one found on the way is filed ("bnfmt breaks before a block comment glued to
 a `*`, an `@` or a `(` that would end its line at the cap").
+The coverage review that followed (binate `7bec3ce68`, landed on "wait 7 minutes, then land") gave a case to each of
+seven pieces no test reached: the space after the comments following a `[`, the comments before and after an inferred
+length's `]`, a length whose block comment spans lines, a length after a `[` that starts a continuation line, one on a
+`// LONG-LINE ALLOWED` line, and typeUnbreakable's slice case.  writeTypeGap's `lineWidth(b) + 1 > cont` always held
+where it was checked, and was dropped.
 
 ### native: folded-away values got PlanFrame slots — DONE (binate `724184214`, 2026-11-23, work-3)
 
