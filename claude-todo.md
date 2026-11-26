@@ -2136,13 +2136,6 @@ covered by the single-VM and native lanes). Open:
 
 ## Documentation hygiene
 
-### examples/files/README.md says "There is no `defer`" — 🟡 IN PROGRESS (claimed 2026-11-25, temp-4) 🟢 LOW (found 2026-10-12, work-4, `defer { … }` step 1)
-
-`examples/files/README.md:56`: "every open in the tour has a matching close. There is no `defer`;
-deterministic release is the language's answer".  Binate has `defer`, and the examples' pin, `bnc-0.0.17` since
-examples `789144e`, has its block form `defer { … }`, so the sentence is wrong.  Fix: say the tour closes each file
-explicitly, or use `defer { f.Close() }`.
-
 ### Language spec doesn't state the package-path syntax the toolchain enforces — 🟢 minor, needs a decision (found 2026-09-27, work-3)
 
 §16.2/§16.3 define a package path only as a `string_literal` (the package clause / import path), but

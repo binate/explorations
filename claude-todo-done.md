@@ -1,3 +1,11 @@
+### examples/files/README.md said "There is no `defer`" — DONE (examples `4ed1f24`, 2026-11-25, temp-4; user: "yes, to the other question") (LOW; found 2026-10-12, work-4, `defer { … }` step 1)
+
+`examples/files/README.md` said "every open in the tour has a matching close.  There is no `defer`; deterministic
+release is the language's answer", though Binate has `defer`, and the examples' pin, `bnc-0.0.17` since examples
+`789144e`, has its block form `defer { … }`.  Fixed: the README says the tour closes each file explicitly, that a
+`defer { f.Close() }` would close it when its block exits, and that reference counting releases memory
+deterministically while a descriptor is the kernel's resource.
+
 ### REPL: remove process-global session state (multi-session blocker) -- DONE (binate `3ef73b244`, `098a85049`, 2026-06; found stale 2026-11-25; user: "and yes, move the entry to the done file")
 
 Both `pkg/binate/ir` globals the entry names are gone: `currentChecker` since binate `3ef73b244` (2026-06-16;
