@@ -3519,6 +3519,13 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   (b)") `EliminatePhis` sets a flag on `ir.Func` and the check runs only while it is false.  A pad entered only
   from a dropped block is dropped with it (binate `1a4750ed3`); the pads other passes leave unentered (entry
   above) still read values of `f.Blocks`, so they pass.
+  Measured by callgrind instruction counts (2026-11-15): +0.24-0.32% native and LLVM, +0.56% VM, mostly call
+  overhead (a call per operand that refcounts three managed parameters), so (user 2026-11-26, "1. yes") a cheaper
+  form folds into this commit before it lands.  Next, as its own commit, claimed with this entry (user 2026-11-26:
+  "2. yes, I think so; 3. yes"): reject two of f's instructions sharing an id (an unread duplicate silently
+  overwrites the live value's register or slot on native and the VM; LLVM rejects it), and make
+  `irbuild.NewParamRef` panic on a parameter that is not one of f's (a ref has no link back to its parameter, so
+  the operand check cannot tell another function's parameter under the same id).
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with
