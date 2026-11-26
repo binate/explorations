@@ -3121,6 +3121,15 @@ end that line too, so together they run past the cap: `v2 := *gggggggggg(/* c7 *
 not fit on the line together.  writeGapSeparator (print_listcomments.bn) places the comments between elements without
 measuring such a run, and can measure it the same way.
 
+### bnfmt breaks before a block comment glued to a `*`, an `@` or a `(` that would end its line at the cap — 🔴 OPEN 🟢 LOW (found 2026-11-25, temp-4, working on the parameter-list type entry; pre-existing, main the same)
+
+`var <80 x's> @ /* cccccccc */ Tttt` prints `var … @` (86 wide) and `/* cccccccc */ Tttt` on a continuation line,
+where `var … @/* cccccccc */` would end at the cap (`*` the same), and `g<84>(/* cccccccc */ a)` one tab in puts the
+comment on a line of its own, where `…(/* cccccccc */` would end at the cap.  writeGapComments
+(print_listcomments.bn) starts a line before a block comment when `lineWidth(b) + 1 + firstLineLen(c.Text)` passes
+the cap, counting a space before it, but writes no space before a first block comment glued to a delimiter (`glue
+&& i == 0`).  Fix: count the space only where one is written.
+
 ### bnfmt puts an empty line after a slice's `:` when the comments there do not fit on a continuation line either — 🔴 OPEN 🟢 LOW (found 2026-11-23, temp-4, the review of the slice low-bound break; pre-existing, main before binate `fd4f3a7fd` the same)
 
 `x = <10 a's>[<10 b's>: /* <96 c's> */ // lc` / `y]` prints `x = …[…:`, an empty line, then the comments and `y]` on
