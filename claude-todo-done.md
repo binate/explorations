@@ -1,3 +1,13 @@
+### bnfmt did not break a type-argument list nested in another — DONE (binate `de0af0686`; its test binate `673604a04`, 2026-11-26, temp-4; user: "yes, to the other question", landed on "wait 8 minutes, then land") (LOW; found 2026-11-11, temp-4, review of the deep slice nest fix)
+
+In a generated probe, an asserted type in an `if` condition seven tabs in printed `@[]Box[p.Box[<a×12>, <d×14>,
+<a×9>], <a×16>, <m×23>]]) {` on one line, 108 wide: an instantiation in a type-argument list was rendered from
+column 0 and written where it went as that text, so its own list did not wrap there.  binate `de0af0686` (a type in a
+list is printed in place when its text does not fit where it goes) fixed it: bnfmt built at its parent, `0e1b7b374`,
+prints the probe 108 wide, and main wraps it.  Found fixed on 2026-11-25 in a check of temp-4's open entries; binate
+`673604a04` pins it (TestTypeArgListNestedInAnotherWrapsWhereItGoes: `var v Pair[<F×40>, Box[Box[<a×12>, <d×14>,
+<a×9>], <a×16>, <m×30>]]`, whose inner list printed 102 wide before).
+
 ### Diagnostics printed an array length that depends on a type parameter as 0 — DONE (binate `6ec2bc17e`, 2026-11-25, temp-5; decided 2026-11-25, user: "(b) seems fine"; landed on "wait 11 minutes, then land") (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0

@@ -3050,12 +3050,6 @@ literal, split where it lands) fixed these but left 4 non-idempotent probes (a f
 and 14 past the cap (nested type-argument lists), and merged short runs (`"k" "d"` to `"kd"`) -- the user chose
 the measure-only form.  A fix needs a measure of a split run that a second format reproduces.
 
-### bnfmt does not break a type-argument list nested in another — 🟡 IN PROGRESS (claimed 2026-11-25, temp-4) 🟢 LOW (found 2026-11-11, temp-4, review of the deep slice nest fix; pre-existing, main does the same)
-
-In a generated probe, an asserted type in an `if` condition seven tabs in prints `@[]Box[p.Box[<a×12>, <d×14>,
-<a×9>], <a×16>, <m×23>]]) {` on one line, 108 wide: neither the outer nor the inner type-argument list wraps.  Not
-yet reduced; printTypeListWrapped's measure of an element that is itself an instantiation is the first suspect.
-
 ### bnfmt keeps a head from wrapping for a line comment it cannot make room for — 🔴 OPEN 🟢 LOW (found 2026-11-11, temp-4, third review of the no-high-bound slice comment fix; pre-existing for lists and slices with a high bound, since binate `c17e85ff4` for slices without one too)
 
 A line comment that must stay after an element, or after a slice's `:`, gets room in the reservation of what precedes
