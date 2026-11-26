@@ -264,6 +264,7 @@ IR-gen cannot map is an internal error, never `int`.
      matches the registering path would catch it at registration; (c) aliases stay keyed by `d.Name`
      (RegisterModuleTypeAlias keeps the first entry for a name), and methods, impls, generic stashes and
      interface parents (collectInterfaceParents by ref.Name) by written names -- 5c-2 / 5d / 5e.
+     5c-2 IN PROGRESS (work-6, 2026-11-25, stage 7 done).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
@@ -569,7 +570,7 @@ IR-gen cannot map is an internal error, never `int`.
 7. **Delete the legacy and no-checker paths; convert the tests.**  With them, what 6-6b would have deleted:
    CurrentImportPkg, the import overlays (instances, impls, per declaration) and their alias-map snapshots, and the
    bare-name precedence rules.
-   IN PROGRESS (work-6, 2026-11-23; user: "yes, go ahead").
+   DONE (work-6, 2026-11-23 to 2026-11-25; user: "yes, go ahead"): 7a-1 to 7c-4 below.
    Increments (2026-11-23, work-6), from a probe of the 66 checker-nil branches in irgen: 100 unit tests reach one
    (74 in irgen, in 28 files; 26 in codegen and the native backends, through five calls of GenModule(nil)), through
    22 of the branches.
@@ -669,10 +670,7 @@ IR-gen cannot map is an internal error, never `int`.
          constant-folding unit tests that built unchecked syntax now check their programs.  Still read by
          name, for 5c-2: ifaceRefKeyByName, instantiatedAliasTarget, implRecvKeyByName and the
          homedQualifier uses.
-   Then 5c-2 (stage 5's merged, lazy type registration).  ~84 irgen test files build IR without a
-   checker (223 genFromSource calls in 44 files, 56 genFromSourcePkg in 17, 42 files building GenCtx by
-   hand), plus GenModule(nil) helpers in codegen and the native iface tests; many are white-box tests of
-   internals this deletes.
+   Then 5c-2 (stage 5's merged, lazy type registration) -- IN PROGRESS (work-6, 2026-11-25).
 8. **REPL type / interface shadowing** (plan-repl-type-shadowing.md).
 
 ## Stage 0 results (2026-10-15, work-6)
