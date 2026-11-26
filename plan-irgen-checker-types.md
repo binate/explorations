@@ -264,7 +264,29 @@ IR-gen cannot map is an internal error, never `int`.
      matches the registering path would catch it at registration; (c) aliases stay keyed by `d.Name`
      (RegisterModuleTypeAlias keeps the first entry for a name), and methods, impls, generic stashes and
      interface parents (collectInterfaceParents by ref.Name) by written names -- 5c-2 / 5d / 5e.
-     5c-2 IN PROGRESS (work-6, 2026-11-25, stage 7 done).
+     5c-2 IN PROGRESS (work-6, 2026-11-25, stage 7 done), in these steps (from a survey of the seven passes):
+     - 5c-2a DONE (binate c745aa89a, 2026-11-25; user: "wait 7 minutes, then land"): an impl's receiver key,
+       an impl's listed interfaces and an interface's parents, and an interface alias's target come from their
+       records only; no record, an abstract one or one of the wrong kind is an internal error.  The by-name
+       fallbacks go (implRecvKeyByName, ifaceRefKeyByName, instantiatedAliasTarget, the alias target's
+       written-name arms, recvBaseNameAndPkg / recvAliasEntry, homedQualifier / buildQualNameHomed), about
+       430 lines.  Every module's objects unchanged (codegen-ab, all three corpora); VM multi-package
+       conformance 362, REPL e2e 174, irgen 857.
+     - 5c-2b: the import list: with homedQualifier gone nothing resolves an import alias by its spelling
+       (irbuild.ResolveImportPkg is test-only), so Module.ImportAliasNames goes and the paths become the
+       module's import list (the backends' satisfaction-fragment edges); every driver but the REPL passes the
+       path as the alias, so the list is unchanged.
+     - 5c-2c: registration order by written names goes: aliases map through their checker records
+       (irAliasFromChecker) whatever is registered, and named types are pre-registered, so the dependency walk
+       over bare names (gen_decl_order: typeExprBareNames, typeDeclDepNames, typeDeclWalk; the REPL's
+       genReplAliasDecls) registers in source order instead.  TypeAliases order reaches output only through
+       the opaque named dtors (named types, pre-registered in declaration order), so byte-identical.
+     - 5c-2d: one registration routine for a package's type declarations, which the seven passes call
+       (struct names, generic stashes, interface stubs, opaque forwards, named types and aliases,
+       interfaces, struct fields), each registration once per (package, name).
+     - 5c-2e: fields, underlyings, method sets from the checker's type of the declaration (its record), not
+       its TypeExpr; then the mapper registers a named type / struct it meets unregistered from that type, so
+       no pass order leaves one nil (the pre-registration passes stay for declaration order).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
