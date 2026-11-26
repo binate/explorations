@@ -1229,6 +1229,22 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 - Cause: unknown; a miss recorded with an empty key (captureMissing, check_pending.bn) is the likely path.
 - Fix: reject the declaration with the error a file gets.  Test: an e2e/repl.sh case of the session above.
 
+### IR-gen: an alias of an opaque type gets a destructor of its own — 🔴 OPEN MINOR (dead definitions and unreferenced extern declarations; found 2026-11-26, work-6, review of plan-irgen-checker-types 5c-2c; pre-existing on main as of binate `20871c49a`)
+
+- **Symptom**: generateOpaqueNamedDtors (pkg/binate/irgen/gen_dtor_opaque.bn) walks Module.TypeAliases and
+  takes every entry whose type is an opaque named type -- alias entries included -- as an opaque type of its own:
+  - In the defining package (`type X` in the `.bni`, `type X @[]char` in the `.bn`, with `type A0 = A1`,
+    `type A1 = A2`, `type A2 = X`) it defines `__dtor_A0`, `__dtor_A1` and `__dtor_A2` beside `__dtor_X`, and
+    nothing calls them: dropping an `@A0` calls `__dtor_X`.
+  - For an alias of another package's opaque type, or of a module's forward `type X` that nothing defines, it
+    declares `<pkg>.__dtor_<alias>` extern, which nothing defines; nothing references the declarations either,
+    so links succeed.
+- It is also the one way Module.TypeAliases order reaches the output: the alias destructors follow it.
+- **Fix**: skip an entry whose name is not the opaque type's own (`!irutil.Streq(name, t.Name)`; both are
+  qualified), with a unit test that an alias of an opaque type adds no destructor and no extern declaration.
+  It changes output (those definitions and declarations go), so its validation is a corpus A/B in which only
+  they differ.
+
 ## Performance
 
 One umbrella for all perf work. **How to measure — run the benchmarks; never
