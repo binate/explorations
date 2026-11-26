@@ -27,6 +27,14 @@ symbol, RTTI name or IR sees it (IR-gen maps no dependent array).  The pinned ch
 208 and 213 now pin `?`, and TestDeferredCheckInWaitingResolutionNotGivenOut and
 TestOwnCheckOfInstanceNamedWaitingNotHeld also check that a generic's own check gives out no `Eq[[?]uint8]`.
 
+### Checking is quadratic in a package's number of declarations: the batch's methods lists -- DONE (binate `1171cc92e`, 2026-11-26, work-1; user: "Land it"; the rest of the entry stays open)
+
+MethodsCollected, MethodsDefined, MethodsDefining and a `.bni` build's MethodsDefining were searched linearly (the
+last three also appended by copying); they are declSets, MethodsUndo a vec.  A 20,000-method chain 1.70-1.95 s from
+4.51-4.98 s; 16,000 methods read by later variables' array lengths 2.46-2.77 s from 5.36-5.91 s; cmd/bnc's LLVM IR
+on 3 targets and all 2,999 corpus programs identical to main's; bnlint-self clean; the review's 14 probes identical
+(the review found the MethodsCollected search).
+
 ### examples/files/README.md said "There is no `defer`" — DONE (examples `4ed1f24`, 2026-11-25, temp-4; user: "yes, to the other question") (LOW; found 2026-10-12, work-4, `defer { … }` step 1)
 
 `examples/files/README.md` said "every open in the tour has a matching close.  There is no `defer`; deterministic

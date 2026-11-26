@@ -2853,8 +2853,13 @@ declarations elsewhere:
   findConstDecl and both declaration-start stacks are linear since `2b9f00809`, ConstResolving / ConstResolved
   since `ca2b940a7`: a 20,000-constant chain 0.2 s, from 5.5-6.1 s; the batch's on-demand variable and function
   lists since `f1cc83359`.)
-- the batch methods stage (binate `2e53f11da`) appends MethodsDefined / MethodsUndo / MethodsDefining the same way
-  (LLVM's addStructDef, also named here, has an index since binate `7f47f5003`);
+- the batch's remaining linear lists: VarsChecked, VarsCycled, VarsSelfRead, VarsDeferred (declInVec / declInList)
+  and IfacesCollected / IfacesCollecting; a `.bni` build's IfacesResolving / IfacesResolved.  (The batch's methods
+  lists are declSets since `1171cc92e`.)
+- past the checker, a 32,000-method package (16,000 types with a method each, read by later variables' array
+  lengths, then 16,000 more) spends about a quarter of its time in LLVM codegen's collectStructTypes, and grows
+  superlinearly in FuncSigEq.Equal (irdata's function-signature table: hash collisions?) and in Scope.LookupLocal /
+  the scope-name table's equality;
 Fix: index what these scan by name, and build the lists with vec.
 
 ### A chain of variables with inferred types (`var v0 = v1 + 1`, ...) crashes the checker at 2,000 links — 🟡 IN PROGRESS (claimed 2026-11-23, work-1; user: "Land; add it to my list") 🟢 LOW (found 2026-11-23, work-1, measuring the init-order walk; pre-existing, bnc from main at binate `2bf8681b9` alike)
