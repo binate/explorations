@@ -25,6 +25,18 @@ instance's arguments were held already; one whose size depends on a type paramet
 instance (gen.mono.check).  `@Big[int8, [1 << 61]int64]`, with Big's method taking the U, reports twice: at the
 method's parameter and at the argument.
 
+### Checking is quadratic in a package's number of declarations: the constants' lists, the declaration-start stacks and findConstDecl -- DONE (binate `2b9f00809`, 2026-11-25, work-1; user: "Land it"; the rest of the entry stays open)
+
+beginTopLevelConsts / listBniConsts built ConstNames / ConstDecls / Blanks by copying appends; DeclStarts (the
+batch's and a `.bni` build's stack of declarations being resolved, as deep as a constant chain) was pushed by
+copying; findConstDecl and the walks' membership tests (nameInList over the names, nine sites) walked the list.
+Vecs, DeclStarts a vec (an empty pop is an internal error), and an index of the batch's or the build's constant list
+(check/check_const_index.bn: constIndexIn / constListed) used when the list given is that one.  A 20,000-constant
+chain 1.84-2.44 s from 5.53-6.12 s (a `.bni` chain 3.8 s from 9.3 s); cmd/bnc's LLVM IR on 3 targets and all 2,999
+corpus programs identical to main's; bnlint-self clean; the review's differential run (430 inputs) found no
+difference, and its follow-ups went in before landing (its alias-frame finding is a LOW entry).  Tests:
+TestConstIndex, TestConstIndexOwners.
+
 ### bnfmt did not wrap a type inside a parameter list, and left it no room for what followed it — DONE (binate `de0af0686`, 2026-11-25, temp-4; user: "work on the open LOW entry", on the reviews' findings "Function types only (Recommended)" and "File them, land without (Recommended)", landed on "wait 8 minutes, then land both and keep the entry open") (LOW; part of "bnfmt does not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly`" in claude-todo.md; found 2026-11-14, temp-4, review of the comments inside types)
 
 A parameter-list item was rendered once, from column 0, and went on its line whole, so a type in it that could wrap
