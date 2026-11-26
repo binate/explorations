@@ -2125,10 +2125,9 @@ covered by the single-VM and native lanes). Open:
 ### examples/files/README.md says "There is no `defer`" — 🟢 LOW (found 2026-10-12, work-4, `defer { … }` step 1)
 
 `examples/files/README.md:56`: "every open in the tour has a matching close. There is no `defer`;
-deterministic release is the language's answer".  Binate has `defer` (the examples' pinned `bnc-0.0.16` has
-the call form `defer f()`; `bnc-0.0.17-pre2` and later have `defer { … }`), so the sentence is wrong whichever
-version it describes.  Fix with the examples' next bnc bump: say the tour closes each file explicitly (or use
-`defer { f.Close() }` once the pin carries the block form).
+deterministic release is the language's answer".  Binate has `defer`, and the examples' pin, `bnc-0.0.17` since
+examples `789144e`, has its block form `defer { … }`, so the sentence is wrong.  Fix: say the tour closes each file
+explicitly, or use `defer { f.Close() }`.
 
 ### Language spec doesn't state the package-path syntax the toolchain enforces — 🟢 minor, needs a decision (found 2026-09-27, work-3)
 
@@ -3123,12 +3122,15 @@ it); the user kept the rule (2026-11-24, "Function types only (Recommended)").
 
 ### bnfmt lets an array length run past the cap by the `]` and element type after it — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
 
-An array type's length wraps only when the length itself passes the cap: printArrayLen (print_type.bn) prints it with
-printExpr, which reserves nothing after it, so `var b [Aaaa<×40> + Xxxx<×44> + Nn]int` prints 103 wide where a break
-after the first `+` keeps it in the cap (a length that itself passes the cap does break there).  The same holds for a
-call or a builtin as the length (`[__c_global("s…", T)]int`, a formatter-only input, as such a length is not
-constant).  Fix: print the length with printExprTail, reserving the `]` and what follows it on its line (the element
-type, and the rest of the declaration when the type ends it).
+An array type's length breaks only where the length itself passes the cap: printArrayLen (print_arraytype.bn) prints it
+with printExpr, which reserves nothing after it.  Since binate `f1194e7e2` a length moves after its `[` when what
+follows the `[` does not fit on the line, so `var b [Aaaa<×40> + Xxxx<×44> + Nn]int` fits; but a length that breaks
+still runs past the cap by the `]` and element type after its last line: `var g [<A×40> + <X×44> + <B×40> +
+<C×50>]<T×16>` prints its second line 112 wide, where a break after `<B×40> +` keeps it in the cap.  The same holds
+for a call or a builtin as the length (`var e [__c_global("<s×84>", Tttt)]Tttttttt` prints its second line 104 wide,
+where its arguments could break after the `,`; a formatter-only input, as such a length is not constant).  Fix: print
+the length with printExprTail, reserving the `]` and what follows it on its line (the element type, and the rest of
+the declaration when the type ends it).
 
 ### bnfmt lets a block comment and a line comment between a list's elements run past the cap — 🔴 OPEN 🟢 LOW (found 2026-11-14, temp-4, review of the `__c_global` comments fix; pre-existing, main the same)
 
