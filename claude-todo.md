@@ -211,6 +211,11 @@ TestSharedAliasTypesMapOnce 176 s. (4) Unit lanes over their 30-min caps as a wh
 irgen 212, check 146, after the gen1 and gen2 builds), arm32 Linux (1552 s: irgen 572, check 164, format 143) and
 bare metal (1426 s: format 462, check 352). (5) Conformance: int-int 3-5 of 10 shards at the 60-min cap per run;
 comp-comp-comp and arm32 Linux at 30.
+Landed binate `dfd90afce` (2026-11-26; user: "Apply all three", "Raise caps, more shards"): check's
+TestUnnamedBuildKeepsLimits on the VM lanes' skip lists; check's 17 tests taking 0.5 s or more on the single VM on
+the int-int list; unit comp-comp and the arm32 lanes, conformance comp-comp-comp and builder-comp_arm32_linux at 45
+min; conformance int-int in 12 shards.  (binate `3118536cc` gave asm/x64/avx, optab and evex their int-int markers
+meanwhile.)  Open: confirm on the next completed unit and conformance runs, then close this entry.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
@@ -243,7 +248,8 @@ comp-comp-comp and arm32 Linux at 30.
   bare-metal lane passed in 16 and 20 min on the next two unit runs.  Single-VM DONE: binate `236fc20ec` (user: "1.
   yes, go for it"; finer sharding not wanted: "2. ok, leave it as-is"): builder-comp-int and builder-comp-comp-int skip
   the int-int list too (locally check takes 143 s / 214 s on those lanes, builds included).  Open: confirm on CI's
-  next unit run that no single-VM shard times out in check.  The int-int lane's own overrun (check's parts and an
+  next unit run that no single-VM shard times out in check (2026-11-26: one did, on TestUnnamedBuildKeepsLimits,
+  skipped there since binate `dfd90afce`).  The int-int lane's own overrun (check's parts and an
   every-shard load of types / ir) is the slow-lanes entry's (binate `907e25509`).
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
