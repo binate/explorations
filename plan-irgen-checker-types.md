@@ -295,6 +295,16 @@ IR-gen cannot map is an internal error, never `int`.
      - 5c-2d: one registration routine for a package's type declarations, which the seven passes call
        (struct names, generic stashes, interface stubs, opaque forwards, named types and aliases,
        interfaces, struct fields), each registration once per (package, name).
+       - 5c-2d-1 DONE (binate d8dcb90c6, 2026-11-26; user: "wait 15 minutes, then land; then continue"):
+         the import passes (RegisterImports / RegisterImportFuncSigs / RegisterImport) registered every
+         imported named type and alias a second time (registerTypeDeclEntry, no registered check) after the
+         pass over every loaded package: a dead second TypeAliases entry and TYP_NAMED per declaration, and
+         an alias record in AliasDecls the name no longer held.  They register through registerTypeDecls now.
+         Objects unchanged (codegen-ab: LLVM all three corpora, native multi + bnc).
+       - 5c-2d-2: the shared steps (struct names, stashes and stubs, type declarations, interfaces, fields)
+         the passes take in one order; a pass over several packages takes each step for all of them before
+         the next, until 5c-2e's lazy registration of structs and named types makes the order free.  Fields
+         fill once (ModuleStruct.Fields, read only by tests, mirrors the type's).
      - 5c-2e: fields, underlyings, method sets from the checker's type of the declaration (its record), not
        its TypeExpr; then the mapper registers a named type / struct it meets unregistered from that type, so
        no pass order leaves one nil (the pre-registration passes stay for declaration order).  The aliases'
