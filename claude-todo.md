@@ -2979,7 +2979,10 @@ Struct types and function-value types nested in each other are exponential too (
 tree corpus), once the type passes the cap: `type F *func(*func(…int)…)` doubles its time per level (the tree's
 bnfmt: 0.55 s at 28 levels, 2.1 s at 30, 10 s at 32), and `type S struct { f struct { f … } }` takes 2 s at 16
 levels and past 60 s at 32; arrays and pointers stay linear.  The pinned bnfmt grows alike, about 3x faster; the
-comments inside types (binate `6d97d7e91`) made the function values about 1.7x slower at every depth.
+comments inside types (binate `6d97d7e91`) made the function values about 1.7x slower at every depth, and the breaks
+after an array's `[` and after a type gap's block comments (binate `f1194e7e2`) about 4x slower again with comments in
+those gaps: 24 levels of function types and arrays with a comment after each `*` and `[` take 1.48 s, against 0.34 s
+before; without the comments nothing changed.
 conformance/spec/07-types/305_type_depth_nested_syntax.bn nests both 1024 deep, so bnfmt does not finish it
 (conformance/ is outside the bnfmt hygiene check).  Where the time goes is not looked at yet.
 
@@ -3088,16 +3091,6 @@ name> /* <a 40-character comment> */ {` prints 133 wide (before binate `b8a91ad0
 method, 90 wide), and `type <an 80-character name> /* <…> */ struct {` 142 wide (bnfmt `bnc-0.0.17-pre3` moves the
 comment, 99 wide).  A line break there would end the declaration, so such a line fits only if the comment moves.
 
-### bnfmt does not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly` — 🟡 IN PROGRESS (claimed 2026-11-24, temp-4) 🟢 LOW (found 2026-11-14, temp-4, review of the comments inside types; the types' lists wrapping where they go done in binate `de0af0686`)
-
-`func g(<61 n's> [/* comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` prints its first
-parameter on a continuation line 103 wide: nothing breaks inside an array type's brackets but a length that itself
-passes the cap (printArrayLen), where a break after the `[` keeps it in the cap.  And a block comment after a `...`,
-a `*` or a `readonly` stays on the line whatever follows it (printDotsType, writeGapSeparator): `var v *func(int, ...
-/* <89 c's> */ int)` prints its second line 102 wide (`*` in place of the `...`, 103), and `func f(a int, b ... /*
-<79 c's> */ int) {}` 101 (`readonly` and `*[]int` in place of `...` and `int`, 109), where a break after the comment,
-the type going on at a continuation line, keeps them in the cap.
-
 ### bnfmt formats some parameter-list types differently a second time, or past the cap, around comments, structs and calls in array lengths — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, the reviews of the parameter-list width change; with binate `de0af0686`; the user: "File them, land without (Recommended)")
 
 Of 17,216 generated files, binate `de0af0686` formats 9 differently a second time that its parent did not, and
@@ -3117,6 +3110,10 @@ leaves 7 a line past the cap that its parent kept in; not yet reduced but by sha
   112 wide, where the parent wraps it;
 - 1 in a `cast` type operand, which takes no room for what follows it ("bnfmt prints a builtin with a type operand
   without wrapping").
+
+binate `f1194e7e2` (the break after an array's `[`) adds one more of the third kind: q0047, a call holding a function
+literal and a line comment in an array length after a function type's `...`, deep in a call's function literal,
+whose array lengths break at other places the second time.
 
 ### bnfmt prints a comment inside a type switch's `.(type)` at the start of its body — 🔴 OPEN 🟢 LOW (found 2026-11-24, temp-4, a probe of a comment after each token, closing the comment-gap entry; pre-existing, bnfmt `bnc-0.0.17` the same)
 

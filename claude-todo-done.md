@@ -1,3 +1,27 @@
+### bnfmt did not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly` — DONE (binate `f1194e7e2`, 2026-11-25, temp-4; user: "yes, continue" (the entry's two remaining breaks), landed on "wait 3 minutes, then land") (LOW; found 2026-11-14, temp-4, review of the comments inside types; the types' lists wrapping where they go done in binate `de0af0686`)
+
+`func g(<61 n's> [/* comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` printed its first
+parameter on a continuation line 103 wide, and `func f(a int, b ... /* <79 c's> */ int) {}` 101 wide: nothing broke
+inside an array type's brackets but a length that itself passed the cap, and a block comment after a `...`, a `*` or
+a `readonly` stayed on the line whatever followed it.
+Fixed: an array's length goes on at a continuation line after its `[` and the comments after it when what follows the
+`[` up to the element type's first break does not fit on the line (writeLenGap / lenMoves, print_arraytype.bn); a
+length that cannot break moves then, and one that can moves as an index's element does.  After the block comments in
+a type's gap -- after a `...`, `*`, `@`, `readonly`, `(`, slice sigil, function value's sigil or qualified name's `.`
+-- the type goes on at a continuation line when what follows them up to its first break does not fit (writeTypeGap).
+A type's width up to its first chance to break is measured on its one-line form, the first chance noted as it is
+written (print_typehead.bn).  A type with a comment in such a gap no longer counts as unbreakable, and a variadic
+last parameter with a comment after its `...` leaves the results room (paramsCloseLeast).  Tests:
+print_arraytype_test.bn, print_typehead_test.bn, print_typegaps_break_test.bn.  Of 17,216 generated files, 153 format
+differently from main: 74 narrower, none wider, and one more formats differently a second time (q0047, added to
+"bnfmt formats some parameter-list types differently a second time, ..."); the tree and the other corpora (26,085
+files) format as on main.  Types nested with comments in their gaps format about 4x slower (added to "bnfmt's time
+grows exponentially ...").  A chain of commented gaps steps two tabs in at each break, as nested types do: 160 links
+of `* /* c */` end 146 wide on their indentation (main prints them on one line).  Two pieces were tried and dropped,
+as no probe and no generated file showed them: an empty-results case in sigTailLen and a variadic case in
+typesCloseLeast.  A pre-existing off-by-one found on the way is filed ("bnfmt breaks before a block comment glued to
+a `*`, an `@` or a `(` that would end its line at the cap").
+
 ### native: folded-away values got PlanFrame slots — DONE (binate `724184214`, 2026-11-23, work-3)
 
 needsSpillSlot gives no spill slot to a value a fold elides (IsFoldedAway: a GEP folded into its load or store, a
