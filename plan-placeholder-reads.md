@@ -1,7 +1,9 @@
 # Plan: reads of a placeholder while a variable's type is found
 
-Status: design, 2026-11-03 (temp-5).  Revised after a focused adversarial review the same day (section 9); not
-reviewed again yet.  Covers three `claude-todo.md` entries that share one judgment:
+Status: design, 2026-11-03 (temp-5).  Revised after a focused adversarial review the same day (section 9).  A
+second review of that version (2026-11-04) raised three questions the user decided (section 10); its other findings
+were not recorded, so the plan is reviewed again before implementing.  Re-probed 2026-11-26 on binate main `6ec2bc17e`
+(section 10).  Covers three `claude-todo.md` entries that share one judgment:
 
 1. "An array length checked while its variable's type is found takes that variable's placeholder for an error: its
    errors are lost, and a variable read before its turn is a false cycle" (claimed, temp-5; the user: "we can design
@@ -82,7 +84,7 @@ Probed on binate main `311d4b282`, with `func pick(f @func() int) [3]int`, `func
 | d1 | `var b [len(pick(func() int { return len(a) }))]int`; `var a = [len(b)]int{len(a)}` | cycle `b`, initialization cycle `a` | both `[3]int` |
 | e1 | `func f2(x T) [3]int`; `var V [len(f2(T{}))]int`; `type T [K]int`; `const K = len(V)` | cycle `V` | V `[3]int`, T `[3]int` |
 | e2 | `var V [len(f(K))]int`; `const K = cast(int, sizeof([len(V)]int))` | cycle `V` | V `[3]int` |
-| e3 | `var V [len(W)]int`; `var W = S{k: len([K]int{})}.a`; `const K = len(V)` | cycle `V` | V `[3]int` |
+| e3 | `var V [len(W)]int`; `var W = S{k: len([K]int{})}.a`; `const K = len(V)` | cycle `V` | cycle `V` (F1, section 10) |
 | e4 | `var V [len(f(K))]int`; `var W [L]int`; `const K = len(W)`; `const L = len(V)` | cycle `V` | V `[3]int` |
 | e5 | `type T [len(u)]uint8`; `var u = [len(pickN(N))]int{}`; `const N = len(u)` | cycle `u` | u `[3]int`, T `[3]uint8` |
 | c1 | `const K = len(pick(func() int { var t bool = K; _ = t; return 0 }))` | cycle `K`, and "cannot assign untyped int to bool" | the bool error alone (K is 3) |
@@ -90,6 +92,8 @@ Probed on binate main `311d4b282`, with `func pick(f @func() int) [3]int`, `func
 | a1 | `var V S`; `type S [len(V)]int` | "array length must be a constant integer" | cycle `V` |
 | a2 | `type S struct { a [len(V)]int }`; `var V = S{}` | "cyclic type definition involving `S`" | a cycle (naming V or S) |
 | a3 | `type Box[T any] struct { a [len(V)]int; t T }`; `var V Box[int]` | "array length must be a constant integer" | cycle `V` |
+| F2 | `var V [3]S`; `type S struct { x [len(V)]int }` | compiles, `len(V[0].x)` 3 | as today (F2, section 10) |
+| F2' | `type S struct { x [len(V)]int }`; `var V [3]S` | "cyclic type definition involving `S`" | as F2 |
 
 The cast and call verdicts in the last column were checked on their own (`var a [5]int` passed to each).  Entry 3's
 own programs are in its entry.
@@ -140,7 +144,7 @@ read from V's own named type re-enters `defineVarOnDemand` (a1, a3).
 - When V's search ends, V's type depends on itself iff its resulting type -- its own array lengths, and the underlying
   of each named type or instance it holds by value (what its layout needs) -- holds a length with culprit V.  That is
   `errVarTypeCycle(V)`.  A length in a function literal's body, or in a declaration V's layout does not reach, is not
-  V's cycle (e1-e5, f1).
+  V's cycle (e1, e2, e4, e5, f1; e3 is one, since W's type depends on K -- F1, section 10).
 - A length with another culprit p leaves V's type without a value with culprit p: V is pending on p (3.3), and p's own
   search judges p.  So a cycle through two variables (`var a [len(b)]int`; `var b [len(a)]int`) is reported for the
   variable whose search started first.
@@ -235,7 +239,7 @@ Each step lands on its own, with the tree green.
 2. Pending declarations of every kind (3.3), with culprits: `varHeadType`'s third outcome, the undo list, eager
    release, the sweep, `definingFuncResult`'s clone; constants and `VarsStale` move onto it.
 3. Cycles judged at V's type (3.2): V typed until its layout is prepared, culprits on types, the walk of V's type,
-   free reads of another variable made pending.  e1-e5, f1, a1-a3; regressions/type-reads-const-while-var-typed
+   free reads of another variable made pending.  e1-e5, f1, a1-a3, F2'; regressions/type-reads-const-while-var-typed
    loses its xfail.
 4. V's own check again (3.5), without the head-typing report, with the bit_cast guard (3.1): p1-p5, g1, h1, b1, d1.
    The guard waits for this step: without V's own check again, `var V [len(bit_cast([4]int, V)) + 1]int` would compile.
@@ -275,3 +279,21 @@ value falling back to a check with no head (d1; 3.3); V's own first-pass errors 
 (g1, h1; 3.1, 3.5); cycles through V's named type or instance outside V's frame (a1-a3; 3.2); the sweep's timing
 (3.3); and in section 2, the lazy release, the `TentativeErrors` dedup, the VarsChecking branch's second search and
 `judgeFreeReads`'s report for another variable.  This version takes each in.
+
+## 10. Decisions (2026-11-04) and the re-probe (2026-11-26)
+
+Decided 2026-11-04 (user: "C seems ok. Go with your recs, but get focused reviews of the decisions."), on three
+questions from the second review of this plan (F1, F2, F10; its other findings were not recorded):
+- F1 (a): keep the spec.  An initializer with no type at its head depends on every variable its array lengths need,
+  so the spec's `var a = len([len(b)]int{})` with `var b = h(a).arr` stays a cycle (as
+  regressions/var-type-cycle-read-in-call pins), and so does e3 (W's type depends on K), dropped from entry 2's valid
+  examples.
+- F2 (a): `var V [3]S` with `type S struct { x [len(V)]int }` is valid -- V's type needs only S's declaration, as for
+  a signature (decided 2026-11-01), so `len(V)` is 3 in either declaration order; `var V S` with `type S [len(V)]int`
+  stays a cycle, reported as S's.
+- F10 (a): constants in a `.bni` get entry 3's fix too, so a `.bn` and a `.bni` agree on `const K = len(F(K))`.
+The review of those decisions found the `bit_cast` size check skipped while its operand's layout is being built
+(claude-todo.md, "A `bit_cast` whose operand's layout is still being built skips its size check").
+
+Re-probed 2026-11-26 on binate main `6ec2bc17e`, every program in section 2 and entry 3's three: each gives what its
+"today" column (or its entry) says, F2' included.
