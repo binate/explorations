@@ -1,6 +1,7 @@
 # Native backends: DWARF debug info
 
-Status: SCOPING (claimed 2026-11-13, work-3; claude-todo "The native backends emit no debug info").  Until this
+Status: SCOPED, not started (scoped 2026-11-13, work-3; paused 2026-11-14 for the release items, the claim
+released 2026-11-26; claude-todo "The native backends emit no debug info").  Until this
 lands, bnc rejects `-g` with `--backend native` (binate `44972c53c`).  Not a release blocker (user, 2026-11-14: "I
 don't think we need to block release on native debug info").
 
