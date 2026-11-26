@@ -401,25 +401,6 @@ position and text) and the naming is dropped or never attached.  Fix: keep the c
 repeats one another package's check reported.  Test: conformance 1745_err_generic_impl_instance_two_importers
 (xfail.all; binate `928f6784b`).
 
-### CI: `ubuntu-latest` is Ubuntu 26.04 now -- the arm32 Linux jobs cannot install qemu-user-static, and bare-metal links fail on `.ARM.exidx` — 🟡 IN PROGRESS (claimed 2026-11-14, work-3; user: "We should do (b)", i.e. move to 26.04 rather than pin 24.04) (found 2026-11-14, work-3, reading CI)
-
-GitHub moved `ubuntu-latest` from ubuntu-24.04 (the green unit run 43269624621, 2026-11-12) to ubuntu-26.04 (runs from
-2026-11-14).  The arm32 Linux jobs (unit, conformance, the e2e arm32-* jobs) stop in setup: "E: Package
-'qemu-user-static' has no installation candidate".  The bare-metal lanes (unit builder-comp_arm32_baremetal;
-conformance builder-comp_native_arm32_baremetal's three shards, not yet looked at) fail to link: GNU arm-none-eabi-ld
-reports ~82,000 undefined references to `__aeabi_unwind_cpp_pr0` / `_pr1` from the `.ARM.exidx` unwind entries the
-new image's clang emits for every function.  Plan (b): the 26.04 package for qemu-user, and no EHABI unwind entries
-naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
-the flags the new clang needs -- rather than routing around it with another linker.
-Landed (2026-11-14): binate `021ce946e` installs qemu-user (26.04's static user-mode QEMU; the runners already took
-qemu-arm); binate `d5659d6bb` links bare metal under GNU ld as well as lld -- clang 21's bare-metal driver uses the
-gcc-arm-none-eabi install's GNU ld where clang 18 used lld: functions off a hosted target are nounwind (no personality
-reference), the RAM-declaring script comes before the shared sections, GNU ld's ARM stub / IFUNC sections are placed
-(an ASSERT keeps the IFUNC ones empty) and .note.GNU-stack discarded.  Validated in a local Ubuntu 26.04 image: full
-LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the bare-metal e2e scripts; lld on macOS
-too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
-skip).  Open: confirm on CI's next runs.
-
 ### Diagnostics print an array length that depends on a type parameter as 0 — 🟡 IN PROGRESS (claimed 2026-11-25, temp-5/session; decided 2026-11-25: (b)) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0

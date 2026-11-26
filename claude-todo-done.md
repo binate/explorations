@@ -1,3 +1,25 @@
+### CI: `ubuntu-latest` became Ubuntu 26.04 -- the arm32 Linux jobs could not install qemu-user-static, and bare-metal links failed on `.ARM.exidx` — DONE (binate `021ce946e`, `d5659d6bb`, `4af215fc6`, 2026-11-14, work-3; user: "We should do (b)"; confirmed on CI 2026-11-25)
+
+GitHub moved `ubuntu-latest` from ubuntu-24.04 (the green unit run 43269624621, 2026-11-12) to ubuntu-26.04 (runs from
+2026-11-14).  The arm32 Linux jobs (unit, conformance, the e2e arm32-* jobs) stop in setup: "E: Package
+'qemu-user-static' has no installation candidate".  The bare-metal lanes (unit builder-comp_arm32_baremetal;
+conformance builder-comp_native_arm32_baremetal's three shards, not yet looked at) fail to link: GNU arm-none-eabi-ld
+reports ~82,000 undefined references to `__aeabi_unwind_cpp_pr0` / `_pr1` from the `.ARM.exidx` unwind entries the
+new image's clang emits for every function.  Plan (b): the 26.04 package for qemu-user, and no EHABI unwind entries
+naming a personality routine in our bare-metal code (Binate has no exceptions) -- by `nounwind` in the LLVM IR, or by
+the flags the new clang needs -- rather than routing around it with another linker.
+Landed (2026-11-14): binate `021ce946e` installs qemu-user (26.04's static user-mode QEMU; the runners already took
+qemu-arm); binate `d5659d6bb` links bare metal under GNU ld as well as lld -- clang 21's bare-metal driver uses the
+gcc-arm-none-eabi install's GNU ld where clang 18 used lld: functions off a hosted target are nounwind (no personality
+reference), the RAM-declaring script comes before the shared sections, GNU ld's ARM stub / IFUNC sections are placed
+(an ASSERT keeps the IFUNC ones empty) and .note.GNU-stack discarded.  Validated in a local Ubuntu 26.04 image: full
+LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the bare-metal e2e scripts; lld on macOS
+too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
+skip).
+Confirmed on CI (unit runs 45668153340 and 45727539900, 2026-11-25 / 26): the arm32 Linux lane installs qemu-user
+and runs its tests (86 packages passed), and the bare-metal lane links and runs its tests.  Both are now cut at
+their 30-min caps by the lanes' length, which the slow-lanes entry tracks.
+
 ### bnfmt did not break a parameter-list type after an array's `[` or after a block comment past `...`, `*` or `readonly` — DONE (binate `f1194e7e2`, 2026-11-25, temp-4; user: "yes, continue" (the entry's two remaining breaks), landed on "wait 3 minutes, then land") (LOW; found 2026-11-14, temp-4, review of the comments inside types; the types' lists wrapping where they go done in binate `de0af0686`)
 
 `func g(<61 n's> [/* comment */ 3 /* d */] /* e */ Tttt, yyyyyyyyyyyy int) (int, bool) {}` printed its first
