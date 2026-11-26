@@ -420,7 +420,7 @@ LLVM and native bare-metal conformance 3905/0 each, the arm32 Linux subsets, the
 too.  work-6's two new irgen tests on the 32-bit / file-less lanes: binate `4af215fc6` (a 64-bit pin, a bare-metal
 skip).  Open: confirm on CI's next runs.
 
-### Diagnostics print an array length that depends on a type parameter as 0 — 🔴 OPEN, NEEDS DECISION (how to print it) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
+### Diagnostics print an array length that depends on a type parameter as 0 — 🟡 IN PROGRESS (claimed 2026-11-25, temp-5/session; decided 2026-11-25: (b)) (minor: misleading diagnostics; found 2026-11-16, temp-5, while fixing the declaration's constraint miss; pre-existing)
 
 In a generic's own check, an array length that depends on a type parameter has the placeholder value 0
 (types.Type.ArrayLenDependent), and a type's name prints that 0 (types/type_name.bn). check's unit tests pin such
@@ -440,6 +440,7 @@ the text: an implementing method's dependent array matches its interface's only 
 it, check_subst_walk.bn buildSubstOver); (b) print a dependent length as a mark that says it depends on type
 parameters (e.g. `[?]uint8`, which is not Binate syntax); (c) keep the 0. Test: the pinned messages, in the form
 chosen.
+Decided (2026-11-25), user: "(b) seems fine" -- a dependent length prints as `?` (`[?]uint8`).
 
 ### A generic alias of a struct type that takes the size of a type being collected is a false cycle — 🔴 OPEN (a valid program rejected; found 2026-10-28, work-7, review of the abstract-declaration wait; reproduced on main; pre-existing)
 
