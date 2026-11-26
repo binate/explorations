@@ -1,3 +1,11 @@
+### Native PlanFrame: check that every value counted as owning its bytes got them — DONE (binate `56abf6ed8`, 2026-11-26, work-3; user: "we should probably take those on")
+
+Once the regions are recorded, PlanFrame checks that every value regionPlan counts as owning its bytes has a data
+region (unplacedOwner), and panics with an internal error naming the value otherwise, as its other invariant checks
+do, instead of the backend failing at the value's first use.  The native objects of parser, irgen, check and
+cmd/bnc build on all three targets with it, and a conformance subset passes on the native aa64 self-compiled
+compiler.
+
 ### bnfmt did not break a type-argument list nested in another — DONE (binate `de0af0686`; its test binate `673604a04`, 2026-11-26, temp-4; user: "yes, to the other question", landed on "wait 8 minutes, then land") (LOW; found 2026-11-11, temp-4, review of the deep slice nest fix)
 
 In a generated probe, an asserted type in an `if` condition seven tabs in printed `@[]Box[p.Box[<a×12>, <d×14>,

@@ -1394,7 +1394,7 @@ uninitialised memory and costs a slot.  Check how a zero-size aggregate instruct
 region, planRegions) is represented, then either give the parameter no slot with an address of its own or write
 that address in the prologue, and cover it with a test that takes its frame from PlanFrame.
 
-### Native: indirect calls keep a slot that only x64 uses — 🔴 OPEN (found 2026-11-24, work-3, review of the region-owner slots)
+### Native: indirect calls keep a slot that only x64 uses — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the region-owner slots)
 
 PlanFrame gives every indirect call (callconv.IsIndirectCallOp) a spill slot -- a void one included, which gets an
 unshared slot of its own (planSharedSpills skips void values), and one whose result owns a data region
@@ -1403,15 +1403,6 @@ unshared slot of its own (planSharedSpills skips void values), and one whose res
 slot is never written or read.  Let the backend say whether it stashes the target there (a field the backend sets
 on the RegMap, as it sets the fold sets), and give the slot only when it does; on x64 the void call's slot could
 share by its one position like the owner's.
-
-### Native PlanFrame: check that every value counted as owning its bytes got them — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the region-owner slots)
-
-regionPlan.owns decides which values get no spill slot (needsSpillSlot); their bytes come from regions laid down
-later (placeSharedRegions, placeCallResults).  If the two ever disagree -- an owner left with neither a region nor
-a slot, as the review of binate `6acd50b71`'s first version found (a call stored into the returned local) -- the
-backend fails at emit time with a missing-slot error at the value's first use, far from the cause.  A check at the
-end of PlanFrame that every owner but an indirect call has a region (LookupAlloc >= 0) would report it where it
-happens; decide how it reports (an internal-error panic, or an error the backend surfaces).
 
 ### Native codegen quality — closing the native↔LLVM gap — 🔵 OPEN
 
