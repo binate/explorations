@@ -272,10 +272,14 @@ IR-gen cannot map is an internal error, never `int`.
        written-name arms, recvBaseNameAndPkg / recvAliasEntry, homedQualifier / buildQualNameHomed), about
        430 lines.  Every module's objects unchanged (codegen-ab, all three corpora); VM multi-package
        conformance 362, REPL e2e 174, irgen 857.
-     - 5c-2b: the import list: with homedQualifier gone nothing resolves an import alias by its spelling
-       (irbuild.ResolveImportPkg is test-only), so Module.ImportAliasNames goes and the paths become the
-       module's import list (the backends' satisfaction-fragment edges); every driver but the REPL passes the
-       path as the alias, so the list is unchanged.
+     - 5c-2b DONE (binate 20871c49a, 2026-11-25; user: "wait 15 minutes, then land"): the import list.
+       Module.ImportAliasNames / ImportAliasPaths became Module.ImportPaths (each path once; the backends'
+       satisfaction-fragment edges, no longer deduped there); irbuild.ResolveImportPkg and
+       irgen.RebindImportPath went, RecordImportPath became irgen's recordImportPath(m, path); the nine import
+       registration entry points lost their aliases parameter and the drivers their alias lists (the REPL's
+       and the interpreter's shortName with them).  Every module's objects unchanged (codegen-ab: LLVM all
+       three corpora, native multi + bnc); VM multi-package conformance 362, REPL e2e 174, irgen 858.  The
+       review also found the "REPL: remove process-global session state" todo entry stale (moved to done).
      - 5c-2c: registration order by written names goes: aliases map through their checker records
        (irAliasFromChecker) whatever is registered, and named types are pre-registered, so the dependency walk
        over bare names (gen_decl_order: typeExprBareNames, typeDeclDepNames, typeDeclWalk; the REPL's
