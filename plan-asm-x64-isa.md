@@ -530,6 +530,15 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   EVEX by default), the crypto / GFNI forms (5d), AVX10.2's vmovd xmm, xmm and EVEX vmpsadbw, and AVX-VNNI-INT8 /
   INT16's EVEX forms (5f).
 
-Next: stage 5d, the gathers and scatters with ZMM indexes, the EVEX crypto / GFNI / VPCLMULQDQ forms, IFMA and VNNI
-(the seven names EVEX by default, vpdpbusd .. and vpmadd52luq / huq, with vcvtneps2bf16 left for 5f's BF16), and
-Xeon Phi's ER / PF / 4FMAPS / 4VNNIW.
+- Stage 5d (gathers / scatters, crypto / IFMA / VNNI, Xeon Phi) — landed binate `b25c4d0b1` (2026-11-26; user:
+  "yes"): VSIB with a ZMM index and indexes 16..31 (x64.Operand.Vsib SZ512, EmitModRMN scales the displacement by
+  the element; vex.Emit refuses an index of 16..31 or ZMM, which it would have truncated), the EVEX gathers and the
+  scatters (class z, decoration K: the write mask they need; a gather whose destination is its index is an error, as
+  the VEX gathers' overlap), the EVEX forms of VAES / VPCLMULQDQ / GFNI / SM4 / IFMA / VNNI (vpdpbusd .. and
+  vpmadd52luq / huq EVEX by default, as clang), and avx_table_evex_phi.bn (AVX512ER, 4FMAPS, 4VNNIW, AVX512PF).
+  clang 22 has dropped AVX512PF: its 16 prefetches follow GNU as (52 lines agree).  Against clang 8,881 lines agree
+  but 89 (the prefetches, the 24 overlapping gathers, vcvtneps2bf16); a review's ~7,900 probes found no encoding
+  error.
+
+Next: stage 5e, FP16 (maps 5 and 6: the half-precision arithmetic, conversions, FMA, complex multiply, vfpclasssh /
+vcmpsh with the rest).
