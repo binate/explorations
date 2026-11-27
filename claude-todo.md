@@ -1376,7 +1376,7 @@ C/C++/Rust/Go/Java/Python on shared problems, so it feeds the native↔LLVM gap
 work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
 list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
 
-### Native arm32: the hidden sret slot and small allocas still take 8 bytes — 🔴 OPEN (found 2026-11-25, work-3, review of the arm32 slot sizes)
+### Native arm32: the hidden sret slot and small allocas still take 8 bytes — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-25, work-3, review of the arm32 slot sizes)
 
 PlanFrame reserves 8 bytes for the hidden sret slot (the caller's buffer pointer, SretSlotOff) and at least 8 for
 every OP_ALLOC (`if sz < 8 { sz = 8 }`, then roundUp8), scoped or not, on every target; on arm32 the sret pointer
@@ -1393,16 +1393,6 @@ value's address.  Nothing reads through a zero-size value, so it is likely harml
 uninitialised memory and costs a slot.  Check how a zero-size aggregate instruction value (which also gets no
 region, planRegions) is represented, then either give the parameter no slot with an address of its own or write
 that address in the prologue, and cover it with a test that takes its frame from PlanFrame.
-
-### Native: indirect calls keep a slot that only x64 uses — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the region-owner slots)
-
-PlanFrame gives every indirect call (callconv.IsIndirectCallOp) a spill slot -- a void one included, which gets an
-unshared slot of its own (planSharedSpills skips void values), and one whose result owns a data region
-(needsSpillSlot's exception) -- because x64 keeps the call's target there while it places the arguments
-(x64_call_indirect.bn, x64_iface.bn).  aarch64 keeps the target in X17 and arm32 in IP, so on those targets the
-slot is never written or read.  Let the backend say whether it stashes the target there (a field the backend sets
-on the RegMap, as it sets the fold sets), and give the slot only when it does; on x64 the void call's slot could
-share by its one position like the owner's.
 
 ### Native x64: an indirect call with no value id keeps its target nowhere — 🔴 OPEN (found 2026-11-26, work-3, review of the indirect-call slot change)
 

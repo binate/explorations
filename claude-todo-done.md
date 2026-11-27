@@ -1,3 +1,13 @@
+### Native: indirect calls keep a slot that only x64 uses — DONE (binate `5d438d81c`, 2026-11-26, work-3; user: "we should probably take those on")
+
+RegMap.StashesCallTarget, set by x64 alone (it keeps an indirect call's target, R11, in the call's slot while it
+places the arguments), now decides where an indirect call needs a slot: without it (aarch64, arm32) an indirect
+call gets one only as any other value does -- none when void or when its result owns its bytes; with it (x64) a
+void indirect call's slot spans the call's one position, so such calls share a slot.  In a probe with two void
+interface calls and two void func-value calls the frame went from 160 to 128 bytes on aarch64, 160 to 144 on arm32
+and 176 to 144 on x64; the native objects of parser, irgen, check and cmd/bnc were unchanged (they have no such
+calls).  The review's latent x64 finding (a call with no value id keeps its target nowhere) is its own entry.
+
 ### Native PlanFrame: check that every value counted as owning its bytes got them — DONE (binate `56abf6ed8`, 2026-11-26, work-3; user: "we should probably take those on")
 
 Once the regions are recorded, PlanFrame checks that every value regionPlan counts as owning its bytes has a data
