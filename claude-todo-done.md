@@ -1,3 +1,13 @@
+### Native arm32: the hidden sret slot and small allocas still take 8 bytes — DONE (binate `3394bfff6`, 2026-11-26, work-3; user: "we should probably take those on")
+
+The sret slot takes a word (CC.WordBytes), and a local's slot is its type's size rounded up to a word at its type's
+alignment, each at least a word's (allocaSlotBytes); scoped locals pack at their own alignments and their area ends
+8-aligned.  Every arm32 access to a local and to the sret slot was checked to stay within the new sizes (loads /
+stores by type, copies by the type's size, register-returned results rounded to a word, zeroing in whole words).
+aarch64 / x64 objects of parser, irgen, check and cmd/bnc are byte-identical; arm32 stack totals: parser 51,512 ->
+50,904, irgen 192,688 -> 190,416, check 399,248 -> 394,320, cmd/bnc 52,904 -> 52,712.  Parameter data regions and
+aggregate-value regions still round to 8 on arm32 (not part of this entry).
+
 ### Native, LLVM and VM: an operand that is not one of the function's own values is an error — DONE (binate `12c077301`, 2026-11-27, claude/exciting-davinci-wahyt2 session; user: "1. yes, go ahead and land")
 
 Value ids restart at 0 in every function and every backend names an operand by its id, so an operand that was another

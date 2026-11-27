@@ -1387,15 +1387,7 @@ C/C++/Rust/Go/Java/Python on shared problems, so it feeds the native↔LLVM gap
 work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
 list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
 
-### Native arm32: the hidden sret slot and small allocas still take 8 bytes — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-25, work-3, review of the arm32 slot sizes)
-
-PlanFrame reserves 8 bytes for the hidden sret slot (the caller's buffer pointer, SretSlotOff) and at least 8 for
-every OP_ALLOC (`if sz < 8 { sz = 8 }`, then roundUp8), scoped or not, on every target; on arm32 the sret pointer
-is a word and a 4-byte local needs 4.  Size them as binate `be19f45f6` sizes the spill slots -- by the target's
-word, 8-byte values 8-aligned, each area starting 8-aligned -- and check every arm32 access to an alloca and to the
-sret slot for its width first.  Measure the arm32 frame totals before and after.
-
-### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — 🔴 OPEN (found 2026-11-24, work-3, review of the aggregate-parameter slots)
+### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the aggregate-parameter slots)
 
 A zero-size aggregate parameter (a `struct{}`) gets no data region -- PlanFrame gives one only for a nonzero size
 -- so it keeps a spill slot, but every prologue skips it (aarch64_emit_params.bn's spillAggregateParamAA64,
