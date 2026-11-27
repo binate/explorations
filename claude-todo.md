@@ -392,6 +392,14 @@ type, so V is a `[3]int` and f's parameter a `[3]int` (spec decl.var.type-acycli
 when V's length reads f.  With V declared first it is "variable type cycle involving `V`" (the entry above on a length
 "blamed as its type cycle").  Fix: as for the type in the entry above.  Test: a run test of k5 (xfailed until the fix).
 
+### `len` of a variable whose type is an instance not built yet is not a constant — 🟡 IN PROGRESS (claimed 2026-11-26, temp-5, with the placeholder-reads entries, per explorations/plan-placeholder-reads.md) (minor: a valid program rejected; found 2026-11-26, temp-5, review of that plan's v3; reproduced on binate main `6ec2bc17e`; pre-existing)
+
+`type N struct { v int64; p *Box[N] }`, `type Box[T any] struct { b [len(V)]uint8; a [sizeof(T)]uint8 }`, `type
+Arr[T any] [sizeof(T)]uint8`, `var V Arr[N]` is "array length must be a constant integer" at `len(V)`: V's type, Arr[N],
+is an instance whose build waits for N, which is being collected, and `len(V)` reads it unbuilt.  It is valid: with V
+declared first, or with `type Arr [sizeof(N)]uint8`, it compiles and prints 16 16.  Fix: `len` of such a variable waits
+for the instance (`waitForLayoutHere`), as a layout read does (the plan's 3.4).  Test: lay1 (a run test).
+
 ### A `bit_cast` whose operand's layout is still being built skips its size check: an ill-sized `bit_cast` in an array length is accepted — 🔴 OPEN (minor: ill-typed code that is never compiled accepted; found 2026-11-04, temp-5, review of the placeholder-reads decisions; reproduced on binate main `b52e54139`; pre-existing)
 
 `var V S` with `type S struct { y uint8; x [len(bit_cast([8]uint8, V))]uint8 }` compiles and prints 8 and 9: a
