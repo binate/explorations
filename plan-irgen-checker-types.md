@@ -316,6 +316,14 @@ IR-gen cannot map is an internal error, never `int`.
        its TypeExpr; then the mapper registers a named type / struct it meets unregistered from that type, so
        no pass order leaves one nil (the pre-registration passes stay for declaration order).  The aliases'
        half is done (5c-2c: registerPassedAliases).
+       - 5c-2e-1 DONE (binate 5eac8e920, 2026-11-26; user: "wait 8 minutes, then land; then continue"): a
+         declared type's fields, underlying / alias target and interface method names / parents come from
+         the checker's type recorded on the declaration (declaredTypeRecord, declaredStructFields,
+         declaredUnderlying, ifaceParentKeys); a generic's instances still read the checker's per-instance
+         copies.  Objects unchanged (codegen-ab: LLVM all three corpora, native multi + bnc); irgen 865.
+       - 5c-2e-2: lazy registration in the mapper of a struct / named type / interface it meets
+         unregistered, from the checker's type, its fill queued and drained when the outermost mapping
+         returns (so a ring of thousands of types does not recurse).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
