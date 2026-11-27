@@ -518,7 +518,18 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   unknown x64 mnemonic with three or more operands reports "unexpected token after the instruction's operands", not
   "unknown instruction" (x64_instr.bn checks the line's end before the mnemonic; a reorder fixes it).
 
-Next: stage 5c, the integer instructions: AVX / AVX2's EVEX forms (the VEX table's integer parts, vmovd / vmovq,
-vpextr / vpinsr), and BW / DQ / CD / VBMI / VBMI2 / BITALG / VPOPCNTDQ / IFMA / VNNI / VP2INTERSECT (vpcmp with its
-predicates, vptestm, the down-converting vpmov, vpternlog, vpermi2 / t2, the i-variants of the lane broadcasts /
-inserts / extracts / shuffles, vmovdqa32 .., ...); the seven names EVEX by default wait for 5d.
+- Stage 5c (AVX-512's integer instructions) — landed binate `cb679c3c1` (2026-11-26; user: "wait 8 minutes, then
+  land"): 263 instructions' EVEX lines (811): the VEX integer table's EVEX forms after their VEX lines (vmovd /
+  vmovq, vpextr / vpinsr, broadcasts from a general register included), and two new parts, avx_table_evex_int.bn
+  (quadword arithmetic, d / q logic, vpcmp / vptestm into a mask, rotates, funnel shifts, vpternlog, valign,
+  vdbpsadbw, vpconflict, vplzcnt, vpopcnt, vpmultishiftqb, vpshufbitqmb) and avx_table_evex_intmove.bn (vmovdqa32
+  .., vmovdqu8 .., vpblendm, mask / vector moves, down-converting vpmov, vpcompress / vpexpand, vpermb / w / i2 /
+  t2, the integer lane forms, vp2intersect).  Class p (vp2intersect's pair: clang encodes k1 as k0); vpcmp's
+  predicate names (vpcmpltb .. vpcmpnleuq).  Against clang 35,567 lines agree but three (`vmovd xmm, xmm`,
+  AVX10.2's); a review's 1.4M-line sweep found no wrong bytes.  Kept out for 5d / 5f: IFMA and VNNI (5d, the names
+  EVEX by default), the crypto / GFNI forms (5d), AVX10.2's vmovd xmm, xmm and EVEX vmpsadbw, and AVX-VNNI-INT8 /
+  INT16's EVEX forms (5f).
+
+Next: stage 5d, the gathers and scatters with ZMM indexes, the EVEX crypto / GFNI / VPCLMULQDQ forms, IFMA and VNNI
+(the seven names EVEX by default, vpdpbusd .. and vpmadd52luq / huq, with vcvtneps2bf16 left for 5f's BF16), and
+Xeon Phi's ER / PF / 4FMAPS / 4VNNIW.
