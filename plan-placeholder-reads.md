@@ -3,7 +3,7 @@
 Status: design v3, 2026-11-26 (temp-5): the head rule (user 2026-11-26: "Head rule (Recommended)"), replacing v2's
 design -- declarations pending on a placeholder, undone and resolved again, with errors owned by declarations -- after
 a review of v2 against binate main `6ec2bc17e` found that undo without a clear edge (section 9).  Not reviewed yet;
-reviewed before implementing.  Two questions for the user (section 8).  Covers five `claude-todo.md` entries:
+reviewed before implementing.  Its two questions are decided (section 8).  Covers five `claude-todo.md` entries:
 
 1. "An array length checked while its variable's type is found takes that variable's placeholder for an error: its
    errors are lost, and a variable read before its turn is a false cycle".
@@ -95,7 +95,7 @@ Probed on binate main `6ec2bc17e`, with `func pick(f @func() int) [3]int`, `func
 | c1 | `const K = len(pick(func() int { var t bool = K; _ = t; return 0 }))` | cycle `K`, and "cannot assign untyped int to bool" | the bool error alone (K is 3) |
 | c2 | `const K = len(f(K))` | cycle `K` | K 3 |
 | x1 | `var V [len(f(K))]int`; `var U [len(f(K))]int`; `const K = len(V) + len(U)` | cycle `K` | K 6 |
-| x2 | `var D = S{k: K}.a`; `const K = len(D)` | cycle `K` | S2 (section 8): cycle `K`, or K 3 |
+| x2 | `var D = S{k: K}.a`; `const K = len(D)` | cycle `K` | cycle `K` (S2, section 8) |
 | x3 | `var V = [len(f(K))]int{}`; `const K = len(V)` | cycle `K` | K 3 |
 | a1 | `var V S`; `type S [len(V)]int` | "array length must be a constant integer" | cycle, reported as S's (F2) |
 | a2 | `type S struct { a [len(V)]int }`; `var V = S{}` | "cyclic type definition involving `S`" | as today |
@@ -216,7 +216,7 @@ found by the unit and conformance runs.
 - Moving layout preparation out of on-demand definitions (3.4) changes when a layout wait is found inside a build.
 - Error order changes for errors in `len` operands found while declarations are resolved.
 
-## 8. Questions for the user
+## 8. Questions (decided 2026-11-26)
 
 - S1: a `len` operand with no head depends on each variable it names outside its array lengths, a function literal's
   body included, as an initializer with no head does.  So `var u [len(h(func() int { return len(u) }).arr)]int` (for
@@ -279,3 +279,11 @@ Decided 2026-11-26: entries 4 and 5 go into this plan (user: "(a)"); the design 
 (Recommended)").
 
 Re-probed 2026-11-26 on binate main `6ec2bc17e`: every program in section 2 gives its "today" column.
+
+Decided 2026-11-26, on section 8's questions: S1, user: "Yes, a cycle (Recommended)" -- a head-less `len` operand
+depends on each variable it names, a function literal's body included, and decl.var.type-acyclic's last sentence is
+reworded to say so; S2, user: "x2 is a cycle (Recommended)" -- the spec gets a rule for a constant's definition
+cycle, and a head-less initializer's type depends on the value of each constant it names (x2 is K's cycle, as e3 is
+V's under F1).  Probed then on binate main `6ec2bc17e`: `var u [len(h(func() int { return len(u) }).arr)]int` (for
+`func h(f @func() int) S`) compiles today and is a cycle under S1, and its variant reading `u[0]` into a bool
+compiles, the error lost.

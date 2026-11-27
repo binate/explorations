@@ -366,7 +366,8 @@ a placeholder, whose design needs the same judgment); conformance regressions/ty
 
 With `func f(x int) [3]int` and `type S struct { a [3]int; k int }`, each of these is valid but is "constant definition
 cycle involving `K`": `var V [len(f(K))]int`, `var U [len(f(K))]int`, `const K = len(V) + len(U)` (each length needs
-only f's result type: K is 6); `var D = S{k: K}.a`, `const K = len(D)` (D's type needs no value of K: K is 3); and
+only f's result type: K is 6); `var D = S{k: K}.a`, `const K = len(D)` (decided 2026-11-26, S2 of the plan: a cycle,
+D's head-less initializer naming K); and
 `var V = [len(f(K))]int{}`, `const K = len(V)`.  K's resolution reads a variable whose type it needs (U, D, V), whose
 type is found then, and that reads K -- as f's argument, a field's value -- while K is on the resolution stack
 (ConstResolving); resolveConstByName reports any such read as a cycle, though only K's type is needed there.  (The
