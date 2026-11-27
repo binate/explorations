@@ -1,20 +1,18 @@
-# Plan: reads of a placeholder while a variable's type is found
+# Plan: reads of a placeholder while a declaration's type or value is found
 
-Status: design, 2026-11-03 (temp-5).  Revised after a focused adversarial review the same day (section 9).  A
-second review of that version (2026-11-04) raised three questions the user decided (section 10); its other findings
-were not recorded, so the plan is reviewed again before implementing.  Re-probed 2026-11-26 on binate main `6ec2bc17e`
-(section 10).  Covers three `claude-todo.md` entries that share one judgment:
+Status: design v3, 2026-11-26 (temp-5): the head rule (user 2026-11-26: "Head rule (Recommended)"), replacing v2's
+design -- declarations pending on a placeholder, undone and resolved again, with errors owned by declarations -- after
+a review of v2 against binate main `6ec2bc17e` found that undo without a clear edge (section 9).  Not reviewed yet;
+reviewed before implementing.  Two questions for the user (section 8).  Covers five `claude-todo.md` entries:
 
 1. "An array length checked while its variable's type is found takes that variable's placeholder for an error: its
-   errors are lost, and a variable read before its turn is a false cycle" (claimed, temp-5; the user: "we can design
-   it now").
+   errors are lost, and a variable read before its turn is a false cycle".
 2. "An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed
-   as its type cycle, even where the variable's own length does not need it" (OPEN; its entry says its design "needs
-   the same judgment").
-3. "A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle"
-   (OPEN; its proposed fix takes the constant as a variable's placeholder is taken).
-
-Whether 2 and 3 are done with 1 is for the user (section 8).
+   as its type cycle, even where the variable's own length does not need it".
+3. "A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle".
+4. "A type read in its own array length where its value is not needed is checked with no underlying: an ill-typed
+   literal there is accepted" (into this plan: user 2026-11-26, "(a)").
+5. "A function read in the array length of a variable its signature needs is \"undefined\"" (likewise).
 
 ## 1. The rule
 
@@ -26,46 +24,53 @@ package variable, a function literal called where it is written) has that type b
 function literal's body included.  A type depends on each variable whose type the value of an array length within it
 needs: `len(v)` needs v's type, while `len(pick(func() int { return len(v) }))` needs only pick's result's."
 
-So while V's type is found, V's type is needed only where the value of a length of V's type -- or of a type V holds by
-value, whose layout V's needs -- needs it.  Everything else checked on the way (a call's arguments, a function
-literal's body, a composite literal's elements, a cast's operand, another declaration resolved on demand whose result
-V's type does not take) still has to be checked, against V's real type, once V has one.
+The head rule reads the last sentence by the one before it: the value of `len(e)` needs e's type, found as an
+initializer's is -- the type e spells at its head, or else the type of each variable e names outside the array lengths
+in it, a function literal's body included (S1, section 8).  `sizeof` and `alignof` take a type, whose layout they
+need; `len` is the one constant operand that is an expression (constval/eval.bn).
+
+The spec has no rule for a constant's definition cycle (§9.1 `decl.const` and Ch.6 name none); the checker reports
+"constant definition cycle".  The plan proposes one (S2, section 8): a constant's value may not depend on itself, and
+it depends on each constant its initializer names outside its array lengths, and on what each array length within it
+needs.
 
 ## 2. Today
 
-- `batchVarOnDemand` (check_decl_batch_var.bn) binds V, named while its type is found, to a placeholder
-  (`definePlaceholder`: the error type), which a read takes for an error already reported.  Its branches: V's
-  declared type being resolved (`VarsResolving`); V's head type being found (`VarsHeadTyping`), which reports
-  `errVarTypeCycle` at once; V's initializer being checked (`VarsChecking`), which binds V to the head type a second
-  `varHeadType` search finds, or else to a placeholder, reporting `errVarCycle` while types are collected.
-- `varHeadType` (check_var_head.bn) returns nil when `PoisonedBy` grew during the search, and the caller then checks
-  the initializer as one with no head.
-- `evalArrayLen` -> `notePoisonedLen` -> `placeholderPoisoned` (check_var_placeholder.bn): a length left without a
-  value by a placeholder, wherever it is evaluated -- in V's type, in a constant or a type resolved on demand, in a
-  literal's body -- is reported as that variable's type cycle.  `noteConstPoisoner` / `notePoisonedConst` carry the
-  same through a constant.  `evalArrayLen` has a second outcome without a value, lenNotKnown (from NOT_KNOWN, or from
-  POISONED inside a layout frame that waits), which `resolveTypeExpr` turns into a `[0]T` meanwhile.
-- check_const_pending.bn: a constant resolved while a placeholder it read stands is pending -- kept while the
-  placeholder stands, released lazily (`releasePendingAt`, at the next `lookupDeclOnDemand` or `resolveConstByName`
-  of it) once it does not -- and a variable whose initializer read one is checked again (`VarsStale`,
-  `recheckStaleVars`).  No other kind of declaration is pending.
-- `judgeFreeReads` / `judgeSelfReads` (check_var_free_reads.bn): a placeholder read in an initializer outside its
-  array lengths.  A read of another variable p's placeholder, p not being checked, reports p's type cycle
-  (`freeReadVerdict` -> `errVarTypeCycle(p)`).
-- `checkerEnv.Len` / `Const` (check_constval.bn) reuse an operand's checked type (`ResolvedTypeID`), so an operand
-  checked against a placeholder is never checked again; `definingFuncResult` (check_var_head.bn) resolves a function's
-  result type in place, stamping its syntax.
-- Errors (`addCheckError`, checker_errors.bn): `c.Errors` keeps one entry per (position, message) from `DedupFrom` on;
-  `TentativeErrors` are appended without dedup; drops are by count (`dropChecksSince`, with `StandingErrors` /
-  `ConstErrs` to re-report what a drop must keep).
-- `checkBitCastShapes` (check_c_interop.bn) compares sizes with no guard for an operand of the error type, so
-  `bit_cast([4]int, nosuch)` reports "undefined: nosuch" and a size mismatch.
-- `resolveConstByName`'s dependency pre-pass (`collectConstDeps`) reports a definition cycle for any read of the
-  constant in its initializer, call arguments included, before evaluating it.
-- A generic instance's body is checked after pass 2 and `orderBatchVars` (`drainInstances`, checker.bn), so it never
-  reads a placeholder.
+- `checkerEnv.Len` (check_constval.bn) types `len`'s operand by checking it in full (`checkDimOperand`,
+  check_var_placeholder.bn), but for a composite literal in a `.bni` being built, whose length comes from its written
+  type alone (`compositeLitArrayLen`).  The operand's annotations are reused (`ResolvedTypeID`), so it is checked
+  once, wherever the length is first evaluated: during collection, a constant's resolution, a variable's on-demand
+  definition.
+- A variable named while its type is found takes a placeholder (`definePlaceholder`: the error type), in
+  `batchVarOnDemand` (check_decl_batch_var.bn): its declared type being resolved (`VarsResolving`); its head type
+  being found (`VarsHeadTyping`), which reports `errVarTypeCycle` at once, unless a layout frame waits; its
+  initializer being checked (`VarsChecking`), which binds it to the head type a second search finds, or else a
+  placeholder.  A read inside a build the variable's resolution started does not take one: the build waits
+  (`declReadWaits`, check_layout_wait_decl.bn) and is built again by the flush; so do a constant's
+  (check_by_name_walk.bn `startConstByName`) and a function's (check_decl_batch.bn).  Inside a build that waits
+  already (`skipDemand`) nothing is defined on demand.
+- A placeholder left a length without a value: `evalArrayLen` -> `placeholderPoisoned` reports that variable's type
+  cycle wherever the length is evaluated; `noteConstPoisoner` / `notePoisonedConst` carry it through a constant;
+  check_const_pending.bn keeps a constant resolved while a placeholder it read stands pending, released lazily
+  (`resolveDeclOnDemand`, `startConstByName`), and a variable whose initializer read one is checked again
+  (`VarsStale`).
+- The by-name walk (check_by_name_*.bn) resolves a declaration's reads ahead of it, on an explicit stack, so a chain of
+  any length is resolved without recursion: a constant's the constants its initializer names (`collectConstDeps`,
+  check_const_resolve.bn: every name, call arguments included) and the types whose layouts it reads; a variable's or
+  function's what its type reads (`collectExprReads`, check_by_name_reads.bn: a call's callee, then its arguments).
+  `startConstByName` reports a definition cycle for any read of a constant being resolved (`ConstResolving`), on
+  demand or ahead, unless the read waits; bni_by_name_walk.bn has its own copy of that check.
+- `initHeadType` (check_var_head.bn) is the head rule for an initializer, and takes any expression: a function
+  literal's signature, a composite literal's written type (not `[...]T`), a cast's or bit_cast's type, a call's one
+  result (`calleeResult`; a function or method of the batch whose signature is not defined yet has its result type
+  resolved alone, `definingFuncResult`).  `varHeadType` wraps it for a variable, and returns nil when a placeholder left
+  a length in the head without a value or the head holds an instance not built yet (`instanceNotBuiltIn`).
+- A variable defined on demand with its type (`defineVarOnDemand` :109, and `finishBatchVar`, check_by_name_vars.bn,
+  for one read ahead) has its layout prepared, which collects the types it holds by value.
+- `checkBitCastShapes` (check_c_interop.bn) defers its size check while an operand's type is not collected
+  (`deferIfPending`), and has no guard for an operand of the error type.
 
-Probed on binate main `311d4b282`, with `func pick(f @func() int) [3]int`, `func pickN(n int) [3]int`, `func g4(x
+Probed on binate main `6ec2bc17e`, with `func pick(f @func() int) [3]int`, `func pickN(n int) [3]int`, `func g4(x
 [4]int) [4]int`, `func f(x int) [3]int`, `type S struct { arr [3]int; a [3]int; k int }`, `func wrap(x [3]int) S`:
 
 | | program | today | right |
@@ -89,201 +94,176 @@ Probed on binate main `311d4b282`, with `func pick(f @func() int) [3]int`, `func
 | e5 | `type T [len(u)]uint8`; `var u = [len(pickN(N))]int{}`; `const N = len(u)` | cycle `u` | u `[3]int`, T `[3]uint8` |
 | c1 | `const K = len(pick(func() int { var t bool = K; _ = t; return 0 }))` | cycle `K`, and "cannot assign untyped int to bool" | the bool error alone (K is 3) |
 | c2 | `const K = len(f(K))` | cycle `K` | K 3 |
-| a1 | `var V S`; `type S [len(V)]int` | "array length must be a constant integer" | cycle `V` |
-| a2 | `type S struct { a [len(V)]int }`; `var V = S{}` | "cyclic type definition involving `S`" | a cycle (naming V or S) |
-| a3 | `type Box[T any] struct { a [len(V)]int; t T }`; `var V Box[int]` | "array length must be a constant integer" | cycle `V` |
+| x1 | `var V [len(f(K))]int`; `var U [len(f(K))]int`; `const K = len(V) + len(U)` | cycle `K` | K 6 |
+| x2 | `var D = S{k: K}.a`; `const K = len(D)` | cycle `K` | S2 (section 8): cycle `K`, or K 3 |
+| x3 | `var V = [len(f(K))]int{}`; `const K = len(V)` | cycle `K` | K 3 |
+| a1 | `var V S`; `type S [len(V)]int` | "array length must be a constant integer" | cycle, reported as S's (F2) |
+| a2 | `type S struct { a [len(V)]int }`; `var V = S{}` | "cyclic type definition involving `S`" | as today |
+| a3 | `type Box[T any] struct { a [len(V)]int; t T }`; `var V Box[int]` | "array length must be a constant integer" | cycle, reported as Box[int]'s |
 | F2 | `var V [3]S`; `type S struct { x [len(V)]int }` | compiles, `len(V[0].x)` 3 | as today (F2, section 10) |
 | F2' | `type S struct { x [len(V)]int }`; `var V [3]S` | "cyclic type definition involving `S`" | as F2 |
+| f2u | `type U [len(V)]int`; `var V [3]S`; `type S struct { x [len(V)]int }` | "cyclic type definition involving `S`" | as F2 |
+| t1 | `func f2(x T) [3]int`; `type T [len(f2(T{true}))]int` | compiles | "cannot assign untyped bool to int" (or as worded) |
+| k5 | `func f(y [len(V)]int) [3]int`; `var V [len(f([3]int{}))]int` | "undefined: f" | V `[3]int` |
+| q1 | a `.bni` with `func F(x int) [3]int`; `const K = len(F(K))` | cycle `K`, "undefined: K" | K 3 (F10) |
 
-The cast and call verdicts in the last column were checked on their own (`var a [5]int` passed to each).  Entry 3's
-own programs are in its entry.
-
-The archived fix (binate `59b804c91`, not landed, kept on the local branch `archive/20261030-dim-read-recheck`) dropped
-the head-typing report, re-checked each package-level array-length operand that read a placeholder after pass 2, and
-found a checked variable's head type again "quietly".  Its review found: errors of variables checked on demand inside
-the quiet search dropped (an ill-typed program compiled and ran); a variable left the error type with nothing reported
-(IR-gen panic); a constant resolved during head typing left without a value and never judged (IR-gen panic); the
-re-check outside its const group's iota.  Hence the requirements:
-
-- R1: every declaration that read a placeholder is judged again, constants included.
-- R2: no error that belongs to another declaration is dropped, and no record of an error (a variable in `VarsCycled`)
-  outlives the error.
-- R3: a check done again runs in its full context.
-- R4: a cycle is reported for a variable whose type needs itself, and only then.
+Entry 3's own programs are x1-x3.  The probes are in the session scratchpad (s20/pr, review27).
 
 ## 3. Design
 
-### 3.1 Two kinds of read
+### 3.1 A `len` operand is typed by its head (entries 1, 2, 4, 5)
 
-A read of V's placeholder, or of a result computed from one, either leaves a value without one -- an array length's
-or a constant's, where the value needs V's type -- or leaves only checks incomplete: a call's argument, a literal's
-body, a cast's operand, where the value it feeds is found without V.
+`checkerEnv.Len(e)`: when e spells its type at its head (`initHeadType`, which takes any expression), the length is
+that type's -- its own array lengths evaluated as any type's -- and e is checked in full later (3.2), not now.  An
+array length then reads, while it is evaluated, only what its value needs: `len(pick(...))` reads pick's result type
+and nothing of the literal; `len(f2(T{true}))` reads f2's result type, not T (t1); `len(f([3]int{}))` reads f's result
+type alone, while f's signature is being defined (`definingFuncResult`; k5).
 
-The design needs three properties:
+With no head -- an identifier, a selector, an index, a `[...]T` literal, a call of a method of an expression that is not
+a package variable, a generic function's call whose type arguments are inferred, a callee that is undefined or whose
+head is not known yet (`varHeadType`'s nil cases) -- e is checked in full now, as today, and depends on each variable it
+names outside its array lengths, a function literal's body included (S1): a placeholder read anywhere in its check is
+that variable's type cycle (counted as `notePlaceholderRead` counts reads; reported for the first).  That is what makes
+a check of a head-less operand against a placeholder never lose an error: the variable has the error type, and its
+cycle is reported.
 
-- A placeholder gives no value -- POISONED, never NOT_KNOWN, which would make a `[0]T` (`lenNotKnown`).  Constant
-  evaluation holds this today for `Len`, `Const` and `Type` of the error type, or of a type holding it by value; casts,
-  bit_casts and calls keep their spelled types.  A constant being resolved (3.6) must give POISONED too.
-- A check that reads an operand's layout gives no verdict for the error type: `checkBitCastShapes` gets the guard
-  (fixing h1, and the false errors of p5 and g1).
-- A pending record made inside a layout frame that waits is discarded with the frame.
+The bit_cast guard: `checkBitCastShapes` gives no verdict for an operand of the error type (h1).
 
-Section 3.5's identity check is the safety net for the first.
+### 3.2 The full check, later
 
-### 3.2 V's cycle is judged at V's type (entries 1 and 2; R4)
+The operand checked later is queued with its context: `c.Scope` (a file's scope, or a generic declaration's with its
+type parameters), the iota of the const-group member it is in, the declaration it is in (for `DeclStarts` and a REPL
+batch's attribution), and its head type.  It is queued while the batch resolves a declaration -- collection, a
+constant's resolution, a variable's or function's definition on demand, a type collected on demand -- and checked at
+once anywhere else (a function body checked in pass 2, a generic instance's build: a build's reads of a declaration
+being resolved wait, `declReadWaits`).
 
-V's search -- its declared type resolved and its layout prepared, its head type found, or its initializer checked --
-keeps V "being typed" until it ends; today `defineVarOnDemand` prepares the layout after V leaves `VarsResolving`, so a
-read from V's own named type re-enters `defineVarOnDemand` (a1, a3).
+The queue is checked after pass 2's `checkDecls` -- every declaration is collected and every package variable has its
+type, so no placeholder stands -- and before `orderBatchVars` (`len` evaluates nothing, so the init order does not
+change).  An entry checked may queue none (nothing is being resolved then).  In a REPL batch, at the same point of the
+batch's own pass (checker_persistent.bn).  For a package checked for its declarations only (`CheckPackageDecls`), the
+queue is dropped: its own compile checks it, as a dependency's instances are (`discardInstWork`).
 
-- A length left without a value records its culprits: the variables whose placeholders left it so, directly or
-  through a pending declaration's result read in a value position (3.3) -- a constant (`notePoisonedConst` today), a
-  type's layout (`sizeof(T)`), a variable's type (`len(W)`), a signature's result.  The record is kept on the array
-  type left without a value (or the pending declaration holding it), not reported where the length is evaluated
-  (`placeholderPoisoned` stops reporting).
-- When V's search ends, V's type depends on itself iff its resulting type -- its own array lengths, and the underlying
-  of each named type or instance it holds by value (what its layout needs) -- holds a length with culprit V.  That is
-  `errVarTypeCycle(V)`.  A length in a function literal's body, or in a declaration V's layout does not reach, is not
-  V's cycle (e1, e2, e4, e5, f1; e3 is one, since W's type depends on K -- F1, section 10).
-- A length with another culprit p leaves V's type without a value with culprit p: V is pending on p (3.3), and p's own
-  search judges p.  So a cycle through two variables (`var a [len(b)]int`; `var b [len(a)]int`) is reported for the
-  variable whose search started first.
-- An initializer with no head: V's type is the initializer's, and depends on each variable the initializer names
-  outside its array lengths.  A free read of V's own placeholder is judged as today (`judgeFreeReads`,
-  `judgeSelfReads`).  A free read of another variable p's placeholder leaves V's type without a value with culprit p
-  -- V pending on p -- and never reports p's cycle (f1).
+The full check's type must be identical to the head type (the head is what the spec says the type is): an internal
+error if not.  Its errors are reported once, in the declaration's context; nothing is dropped or undone.
 
-Evaluation order matters: constant evaluation stops at the first operand without a value, so in `var W [len(V)]int`;
-`var V [len(W) + len(V)]int` only one culprit is seen, and one variable is reported.  Either names a real cycle.
+### 3.3 The walk resolves ahead only what the head reads (entries 2, 3)
 
-### 3.3 Pending declarations of every kind (R1)
+`collectConstDeps` and `collectExprReads`, on `len(e)` with a head, collect what the head reads -- a call's callee (its
+result type's reads), a composite literal's or a cast's written type, a function literal's signature -- and not its
+arguments, elements or operand, which 3.2 checks later.  So `const K = len(f(K))` resolves nothing ahead (c2), and V's
+type in e2 / e4 / e5 / x1 / x3 resolves no constant ahead.  `startConstByName`'s cycle report stays: a read of a
+constant being resolved that does not wait is a read of its value, which its value needs -- a cycle (S2).
 
-Today only constants are pending.  Every declaration resolved while a placeholder stands, whose resolution read a
-placeholder or a pending declaration's result (other than V's own search reading V's own placeholder, which 3.2 and 3.5
-judge), is pending: a constant; a variable's declared type, head type or initializer check; a named type
-(`collectBatchTypeDecl`, `collectTypeOnDemand`, `prepareLayout`); an interface (`collectIfaceOnDemand`); an alias; a
-function's or method's signature (`batchFuncOnDemand`, `batchMethodOnDemand`); an instance's build; a generic
-declaration resolved abstractly; a generic type's methods copied onto an instance.  The record holds the declaration,
-the placeholders it depends on (read directly or through what it read), and its culprits if its result is left without
-a value.
+### 3.4 What reads a type being collected or built (a1, a3, F2', f2u)
 
-- While those placeholders stand its result is kept: a value found without V serves the lengths that need it, and a
-  result left without a value carries its culprits to what reads it.
-- A head search left without a value is a third outcome of `varHeadType`, beside a type and none: the variable is
-  bound to the error type as a pending declaration with those culprits, and its initializer is not checked as one with
-  no head (d1; the same for `calleeResult`'s method of a package variable whose receiver is a placeholder).
-- What reads a pending declaration's result is pending on the same placeholders.  A declaration that only names a
-  pending type, without reading its layout or members, is counted too: a redo that was not needed costs time, not a
-  wrong answer, and this happens only while a placeholder stands.
-- When V is defined -- with its type, or the error type once its cycle is reported -- each pending declaration none of
-  whose placeholders stands any more is undone at once (not lazily, as `releasePendingAt` is today): in place for a
-  named type (`setUnderlying(c, t, nil)`, as `collectTypeOnDemand` undoes one that waited) and an instance
-  (`undoInstanceBuild`); its binding restored (`restoreBinding`); its records removed wherever they are --
-  `TypesCollected`, `VarsDefined`, `VarsChecked` (anywhere in it, not only last, or pass 2 skips the check again),
-  `VarsDeferred`, `VarsSelfRead`, `VarsCycled`, `ConstPoisoners`, `Placeholders`, `ConstResolved` and the
-  `StandingErrors` / `ConstErrs` / `SilentPoisons` counts; its annotations cleared (`ast.ClearCheckerAnnotations`); its
-  own errors dropped (3.4).  It is resolved again when next read, when its turn comes, or by a sweep.
-- The sweep resolves every undone declaration whose turn has passed, and repeats until none is left.  It runs before
-  `finishTopLevelConsts` is done, and again before `orderBatchVars`, `judgeSelfReads` and `drainInstances` -- pass 2
-  can undo variables and instances too.
-- `definingFuncResult` resolves a clone of the result type (as `resolveInstanceResult` does), and drops the errors its
-  resolution reports: they are the function's own, reported when collection defines it, which it always does (b1).
-- Termination: a redo runs with one more placeholder gone; it can be pending again only on placeholders that still
-  stand.
+A variable defined on demand gets its type, not its layout: `defineVarOnDemand` and `finishBatchVar` stop preparing
+it.  What reads a layout -- `sizeof`, a type holding the variable's type by value, `bit_cast` -- prepares it, as any
+reader of a layout does; the detection of a layout not built yet inside a build (`leaveDemandFrame`) moves with it.
+`len(V)` of a variable whose type is a named type or instance whose underlying is being collected or built is that
+type's cycle: "cyclic type definition involving `S`" (a1, as F2 decided), Box[int]'s (a3), never "array length must be
+a constant integer".
 
-check_const_pending.bn becomes this mechanism's constant case, and `VarsStale` its variable case.
+### 3.5 `.bni` declarations (F10)
 
-### 3.4 An error belongs to a declaration (R2)
+The `.bni` walk (bni_by_name_walk.bn, bni_by_name_func.bn) takes 3.1 and 3.3: a `.bni` constant `len(F(K))` is F's
+result type's (q1).  Nothing of a `.bni` is checked later (its operands are checked by the declaring package's own
+check: the `compositeLitArrayLen` precedent), so 3.2 does not apply there.
 
-Each error records its owner: the declaration whose state the error records, if any -- `errVarTypeCycle(p)` belongs to
-p, a constant definition cycle to each of its members -- or else the innermost declaration being resolved when it was
-reported (`DeclStarts`, extended to types, interfaces, aliases, signatures and builds).  Undoing a pending declaration
-drops its own errors, and those of the pending declarations undone with it, together with the records they stand for
-(`VarsCycled`, `ConstCycleMembers`); an error of a declaration resolved on demand inside it that is not pending stands.
-Dedup keeps one entry per (position, message) with every owner that reported it, and an entry goes only when it has no
-owner left; `TentativeErrors` are deduped the same way.  This is the error half of the drop the archived fix did by
-count.
+### 3.6 What may go
 
-### 3.5 V's own check, again (entry 1)
+With 3.1 and 3.3, a constant resolved while a placeholder stands has read it only where its value needs it, a cycle:
+check_const_pending.bn's pending constants, `VarsStale` / `recheckStaleVars`, and `ConstPoisoners` may have no use
+left.  The last step removes what its tests show has none, and keeps what still has one.
 
-V's own search may read V's placeholder, or a result pending on V, where V's type does not need it (p3, p4, p4', g1).
-Once V has its type, the errors V's first search reported are dropped, and V's declaration is checked again: its
-declared type's lengths, annotations cleared, or its initializer (`recheckStaleVars`'s path).  The type found again
-must be identical to V's: an internal error if not (3.1).  The head-typing branch's immediate report goes; V named in
-its own head is judged by 3.2 (p1, p2, p3').
+## 4. Why it is sound
 
-### 3.6 Constants being resolved (entry 3)
-
-A constant K being resolved (`ConstResolving`) and read again is a placeholder the same way: the read gives POISONED
-with culprit K, never NOT_KNOWN (3.1).  K's definition is a cycle iff K's own value is left without a value with
-culprit K; a read elsewhere leaves the reading declaration pending on K, resolved again once K has its value.  As for a
-variable (3.5), K's first-pass errors are dropped and its initializer checked again once it has its value (c1).  K's
-reads of itself are judged at K, never pending on itself, so a redo cannot recreate the placeholder.
-`collectConstDeps`'s pre-pass no longer reports a definition cycle; the evaluation judges it (c2).
-
-## 4. The requirements
-
-- R1: 3.3 (every kind, constants included, resolved again, swept).
-- R2: 3.4.
-- R3: a redo goes through the declaration's own path -- `resolveConstByName` with its group's iota, collection, the
-  signature's definition, the instance's build -- never a detached operand.
-- R4: 3.2 and 3.6.
+- Every check made against a placeholder is one the rule says the type depends on: a head-less `len` operand (S1), a
+  head-less initializer of a variable being typed (the spec), a constant's initializer read for its value (S2), a head
+  read for what the head needs (a callee variable `v.m`'s type).  Each reports a cycle and leaves the variable or
+  constant the error type, so nothing it found is wrong or lost.  Reads inside a build wait and are built again.
+- What a length does not need is checked once, after every type is known: no placeholder stands, so nothing is undone,
+  no error is dropped, and no once-only check (a constraint latch, a held build's release) runs against a placeholder.
+- The full check agrees with the head type or is an internal error.
+- A cycle is reported for the declaration whose type or value needs itself: the culprit is the variable (or constant)
+  whose placeholder its own needed read meets.
 
 ## 5. Steps
 
-Each step lands on its own, with the tree green.
+Each lands on its own, with the tree green and its tests seen to fail before it and pass after.
 
-1. Error ownership (3.4): owners on errors (a record's declaration, or the innermost being resolved), drop by owner
-   with the records, dedup by owner set in both lists.  No change in behavior; unit tests of drop by owner and of dedup
-   across owners, in the batch and in the REPL.
-2. Pending declarations of every kind (3.3), with culprits: `varHeadType`'s third outcome, the undo list, eager
-   release, the sweep, `definingFuncResult`'s clone; constants and `VarsStale` move onto it.
-3. Cycles judged at V's type (3.2): V typed until its layout is prepared, culprits on types, the walk of V's type,
-   free reads of another variable made pending.  e1-e5, f1, a1-a3, F2'; regressions/type-reads-const-while-var-typed
-   loses its xfail.
-4. V's own check again (3.5), without the head-typing report, with the bit_cast guard (3.1): p1-p5, g1, h1, b1, d1.
-   The guard waits for this step: without V's own check again, `var V [len(bit_cast([4]int, V)) + 1]int` would compile.
-5. Constants being resolved (3.6): entry 3's programs, c1, c2; regressions/const-read-as-arg-while-resolved loses its
-   xfail.
+1. 3.1 and 3.2, with the bit_cast guard, and S1's spec edit if the user takes it: p1-p5, p3', g1, h1, f1, b1, d1, e1,
+   t1, k5 (each checked when the step is done; one that also needs the walk's change waits for step 2).
+2. 3.3, and S2's spec rule if the user takes it: c1, c2, e2, e4, e5, x1, x3; conformance
+   regressions/const-read-as-arg-while-resolved and regressions/type-reads-const-while-var-typed lose their xfails.
+3. 3.4: a1, a3, F2', f2u.
+4. 3.5: q1.
+5. 3.6.
 
 ## 6. Tests
 
-A unit test (pkg/binate/check) for each program in section 2 and each of entry 3's, and a conformance regression for
-each of p1-p5, f1, b1, d1, c1, c2 and a1.  Kept as they are: TestVarTypeCycleFuncLitBodyNotCycle, the
-regressions/var-type-cycle-* errors, the spec's examples in decl.var.type-acyclic.  May name another variable of a
-cycle (as the archived fix did): spec/09 178.  Each step's tests are seen to fail before it and pass after.
+A unit test (pkg/binate/check) for each program in section 2, and a conformance test for each of p1, p3, p4, b1, c1,
+e1, t1, k5, F2' and x1 (run tests print the lengths; error tests pin the message).  Kept as they are:
+TestVarTypeCycleFuncLitBodyNotCycle, the regressions/var-type-cycle-* errors, the spec's examples in
+decl.var.type-acyclic.  A deferred check's errors come after pass 2's: tests pinning an order among errors are
+found by the unit and conformance runs.
 
 ## 7. Risks
 
-- The properties in 3.1.  A case where a placeholder yields a wrong value would break the identity check in 3.5.
-- Pending declarations and layout waits both undo and redo; a declaration can be both (it read a layout not built and
-  a placeholder).  The order of their redos, and their flushes, needs care.
-- A named type undone in place: what read its layout while it was pending is pending too, so no stale layout survives,
-  but instances built from it must be on the list (3.3).
-- REPL batches (`TentativeMode`, `EditFloor`): an error owned by an earlier declaration must never be dropped.
-- Cost: none on programs with no placeholder reads; redos only while a placeholder stands.
+- The context a later check needs (3.2): a const group's iota, a file scope, a generic declaration's type parameters,
+  a REPL batch's `TentativeMode` and `EditFloor`.  The archived fix failed on the iota (section 9's first review).
+- A head that a later check does not confirm: the internal error makes it loud; the head rule is the spec's.
+- Moving layout preparation out of on-demand definitions (3.4) changes when a layout wait is found inside a build.
+- Error order changes for errors in `len` operands found while declarations are resolved.
 
-## 8. Scope
+## 8. Questions for the user
 
-Step 3 is entry 2's fix and step 5 entry 3's; steps 1, 2 and 4 are entry 1's (p1-p5).  e5, f1 and a1-a3 need step 3
-as well.  Recommended: one project for all three entries.
+- S1: a `len` operand with no head depends on each variable it names outside its array lengths, a function literal's
+  body included, as an initializer with no head does.  So `var u [len(h(func() int { return len(u) }).arr)]int` (for
+  `func h(f @func() int) S`) is a type cycle.  Recommended: yes, with the spec's last sentence of
+  decl.var.type-acyclic reworded to say so.  Without it, a head-less operand's check against a placeholder loses its
+  errors (as p3 does today), and needs v2's undo.
+- S2: a rule for a constant's definition cycle: a constant's value may not depend on itself; it depends on each
+  constant its initializer names outside the array lengths in it, and on what each array length within it needs
+  (`const K = len(f(K))` is 3).  And x2: (a) a head-less initializer's type depends on the value of each constant it
+  names, as on each variable's type (F1), so x2 is K's cycle -- recommended, as for e3; (b) x2 is valid: D's check
+  then has to use K's type without its value, and a read of its value (`S{k: K + 1}`) stays a cycle or needs v2's undo.
 
-## 9. Review (2026-11-03, temp-5)
+## 9. Reviews
 
-A focused adversarial review of the first version found, each probed on binate main `311d4b282` and reproduced:
-the no-head free-read rule reporting another variable's cycle, which with error ownership by the innermost declaration
-would have left a variable the error type with nothing reported (f1; 3.2, 3.4); `definingFuncResult` stamping a
-function's result type with a check made against a placeholder (b1; 3.3); no re-check, and no termination argument, for
-constants being resolved, and the dependency pre-pass's syntactic cycle (c1, c2; 3.6); a head search left without a
-value falling back to a check with no head (d1; 3.3); V's own first-pass errors kept, and the bit_cast guard missing
-(g1, h1; 3.1, 3.5); cycles through V's named type or instance outside V's frame (a1-a3; 3.2); the sweep's timing
-(3.3); and in section 2, the lazy release, the `TentativeErrors` dedup, the VarsChecking branch's second search and
-`judgeFreeReads`'s report for another variable.  This version takes each in.
+v1 (2026-11-03): a focused adversarial review, each finding probed on binate main `311d4b282`: the no-head free-read
+rule reporting another variable's cycle (f1); `definingFuncResult` stamping a function's result type with a check made
+against a placeholder (b1); no re-check, and no termination argument, for constants being resolved, and the
+dependency pre-pass's syntactic cycle (c1, c2); a head search left without a value falling back to a check with no head
+(d1); V's own first-pass errors kept, and the bit_cast guard missing (g1, h1); cycles through V's named type or instance
+outside V's frame (a1-a3).  v2 took each in.  An earlier fix (binate `59b804c91`, not landed, archived on
+`archive/20261030-dim-read-recheck`) had dropped the head-typing report, re-checked each package-level length operand
+that read a placeholder after pass 2, and found a checked variable's head type again "quietly"; its review found errors
+of other declarations dropped (an ill-typed program compiled and ran), a variable left the error type with nothing
+reported, a constant left without a value and never judged (IR-gen panics), and the re-check outside its const
+group's iota.
 
-## 10. Decisions (2026-11-04) and the re-probe (2026-11-26)
+v2 (2026-11-04): a second review raised three questions the user decided (F1, F2, F10; section 10); its other
+findings were not recorded.
+
+v2 (2026-11-26, against binate main `6ec2bc17e`): section 2 had gone stale (the by-name walk, reads that wait inside a
+build, the layout an on-demand definition prepares, the error machinery's in-place edits); and v2's design had no clear
+edge.  Its walk of the types V holds by value contradicted F2 (B1); F2' was fixed nowhere, since the cause is the
+layout an on-demand definition prepares (B2); undoing a declaration dropped its errors but not the once-only state that
+stops them being found again -- a constraint check latched per instance, a held build's releases -- so ill-typed
+programs would compile (B3); the undo list missed FuncsDefined, the methods' records, IfacesCollected,
+TypesPrepared / TypesReadied / TypesWalking, ConstMembersResolved, the queued opaque re-checks and the instance
+entries' state (B4); errors owned by the innermost declaration mis-assign work done for another (B5); culprits had
+nothing to attach to, an array left without a value being the error type singleton (B6); F10 was in no step (B7); and
+types and functions read while they are resolved have the same bugs (B8, now entries 4 and 5).  Its step 1 (error
+ownership) was not well-defined against errors edited in place and the counts taken "since a mark", step 2 had no test
+of its own, and step 3 alone would have accepted code rejected today.  v3 replaces the design (the head rule), so that
+nothing is undone.
+
+## 10. Decisions
 
 Decided 2026-11-04 (user: "C seems ok. Go with your recs, but get focused reviews of the decisions."), on three
-questions from the second review of this plan (F1, F2, F10; its other findings were not recorded):
+questions from the second review of v2 (F1, F2, F10):
 - F1 (a): keep the spec.  An initializer with no type at its head depends on every variable its array lengths need,
   so the spec's `var a = len([len(b)]int{})` with `var b = h(a).arr` stays a cycle (as
   regressions/var-type-cycle-read-in-call pins), and so does e3 (W's type depends on K), dropped from entry 2's valid
@@ -295,5 +275,7 @@ questions from the second review of this plan (F1, F2, F10; its other findings w
 The review of those decisions found the `bit_cast` size check skipped while its operand's layout is being built
 (claude-todo.md, "A `bit_cast` whose operand's layout is still being built skips its size check").
 
-Re-probed 2026-11-26 on binate main `6ec2bc17e`, every program in section 2 and entry 3's three: each gives what its
-"today" column (or its entry) says, F2' included.
+Decided 2026-11-26: entries 4 and 5 go into this plan (user: "(a)"); the design is the head rule (user: "Head rule
+(Recommended)").
+
+Re-probed 2026-11-26 on binate main `6ec2bc17e`: every program in section 2 gives its "today" column.
