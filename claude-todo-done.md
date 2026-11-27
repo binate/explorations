@@ -6,6 +6,15 @@ do, instead of the backend failing at the value's first use.  The native objects
 cmd/bnc build on all three targets with it, and a conformance subset passes on the native aa64 self-compiled
 compiler.
 
+### Checking is quadratic in a package's number of declarations: a package's interfaces and impls -- DONE (binate `38bc19280`, 2026-11-26, work-1; user: "wait 4 minutes, then land"; the rest of the entry stays open)
+
+Checker.PendingIfaceDecls / PendingIfaceTypes (appended by copying, scanned by each collected interface for its
+type) are a pendingIfaces (check/check_pending_ifaces.bn: vecs with an identity index each way, keeping first
+positions); Checker.Impls / PrivateImpls are views of vecs recordImpl grows and truncateImpls cuts; the batch's
+IfacesCollected / IfacesCollecting are declSets.  32,000 interfaces each with a type and an impl 1.12-1.26 s from
+11.81-12.50 s, 16,000 0.53 s from 3.0 s (linear now); cmd/bnc's LLVM IR on 3 targets and all 2,999 corpus programs
+identical to main's; bnlint-self clean; the review's probes identical.  Tests: TestPendingIfaces.
+
 ### bnfmt did not break a type-argument list nested in another — DONE (binate `de0af0686`; its test binate `673604a04`, 2026-11-26, temp-4; user: "yes, to the other question", landed on "wait 8 minutes, then land") (LOW; found 2026-11-11, temp-4, review of the deep slice nest fix)
 
 In a generated probe, an asserted type in an `if` condition seven tabs in printed `@[]Box[p.Box[<a×12>, <d×14>,
