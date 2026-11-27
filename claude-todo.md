@@ -1224,6 +1224,8 @@ the VM stack, with a struct-of-@[]char argument, checking the string's refcount.
 - **Symptom:** package pkg/plib has a `.bn` and no `.bni`; main writes `plib.panic("x")`, and bnc fails with
   "panic: internal error: IR-gen has no signature for the called function pkg/plib.panic (compiler bug)":
   the checker accepted it.  Conformance 1750 (`.xfail.all`) expects "undefined: panic".
+  On main as of binate `12c077301` the message names no function ("... for the called function  (compiler
+  bug)"), seen in a VM sweep of every conformance program.
 - **Cause:** checkSelectorExpr looks a qualified name up with `pkgScope.Lookup` (check_expr_access.bn), which
   walks the scope's parents; a package with no `.bni` is registered with its implementation scope
   (checkPackageImpl's `registerPackage(c, path, c.PackageScope, false)`), whose parent is the universe.
@@ -3508,33 +3510,20 @@ review below still gates finalizing §20.2's normative surface, currently Draft.
   what the old one holds allocated as long as the function (a phi entry's `Val` is a raw pointer, as with dropped
   blocks), and drop the ordering warnings, with tests.
 
-- **Native, LLVM and VM: an operand that is another function's value reads this function's value of the same
-  id** — 🟡 IN PROGRESS (claimed 2026-11-14; user: "3. right after that", after the dropped-block fix) (found
-  2026-11-11, review of the phi-predecessor check; by reading).  Value ids restart at 0 in
-  every function (`ir.NewFunc`), and every backend names an operand by its id: LLVM's `emitRef` writes `%v<id>`
-  (`codegen/emit_util.bn`), native looks it up by id (`LookupReg`, `LookupHome`, `LookupSpill`, `LookupAlloc`),
-  and the VM's `renumberValues` (`vm/lower_regalloc.bn`) and lowering read its register by id.  So an operand
-  in `ins.Args` that is another function's instruction or parameter silently reads f's value of that id; only
-  an id with no location in f fails (native `SetUnresolvedOperandError`, clang's undefined value).  Nothing
-  checks who owns an ordinary operand, not even `--verify-ir` (it checks phi operands only,
-  `VERR_PHI_VAL_UNOWNED`), and `iropt.assertOperandsInScope` (`iropt/inline_pads.bn`) compares ids, not
-  identity.  Valid IR never has such an operand; an optimizer bug (an inliner remap that misses one) would.
-  Fix: before each backend and the VM lower a function (and before phi elimination), check that every operand is
-  one of f's own values: an instruction of f.Blocks or f.FaultPads, one of `f.ParamRefs`, or a global ref of the
-  module being lowered (not `f.Mod`, which init, dtor, copy and eq helpers leave unset), with a test per backend;
-  build the owner set from `blk.Instrs`, never `InstrsVec` (passes leave removed instructions there), and rule
-  `irgen/gen_panic.bn`'s detached OP_CONST_NIL in or out.  The VM eliminates phis in the frame check
-  (`funcFrameBytes`) before `lowerFunc` for most functions, and nothing records it, so (user 2026-11-14, "Q1.
-  (b)") `EliminatePhis` sets a flag on `ir.Func` and the check runs only while it is false.  A pad entered only
-  from a dropped block is dropped with it (binate `1a4750ed3`); the pads other passes leave unentered (entry
-  above) still read values of `f.Blocks`, so they pass.
-  Measured by callgrind instruction counts (2026-11-15): +0.24-0.32% native and LLVM, +0.56% VM, mostly call
-  overhead (a call per operand that refcounts three managed parameters), so (user 2026-11-26, "1. yes") a cheaper
-  form folds into this commit before it lands.  Next, as its own commit, claimed with this entry (user 2026-11-26:
-  "2. yes, I think so; 3. yes"): reject two of f's instructions sharing an id (an unread duplicate silently
-  overwrites the live value's register or slot on native and the VM; LLVM rejects it), and make
-  `irbuild.NewParamRef` panic on a parameter that is not one of f's (a ref has no link back to its parameter, so
-  the operand check cannot tell another function's parameter under the same id).
+- **Native, LLVM and VM: the operand-ownership check's follow-ups** — 🟡 IN PROGRESS (claimed 2026-11-26; user
+  2026-11-27: "land D as-is, and do those as their own commit next"; 2026-11-26: "2. yes, I think so; 3. yes") (the
+  check itself is binate `12c077301`; see the done log).  Two commits, in this order.  (a) Cheaper still: by
+  callgrind instruction counts the check costs +0.13% of native -O0, +0.09% of -O2, +0.11% of LLVM -O0 (bnc only) and
+  +0.22% of the VM loading cmd/bnc (`bni -main-dir cmd/bnc -- --version`), where the VM does less other work per IR
+  instruction.  `foreignOperandIn` spends ~24.5 instructions per IR instruction, half of them reloads of values the
+  slow path's arguments (`f`, `kind`, `refs`, `mv`, `b`) keep live: split the hot scan (instructions and the id array
+  only, returning the first operand not found) from the miss handling; merge `fillByID`'s max-id pass into its record
+  pass; fetch `ParamRefs.Items()` and build a message only on a miss -- together about 0.14% on the VM, by the
+  profile (estimates).  (b) Reject two of f's instructions sharing an id (an unread duplicate silently overwrites the
+  live value's register or slot on native and the VM; LLVM rejects it; the id array already sees it), and make
+  `irbuild.NewParamRef` panic on a parameter that is not one of f's (a ref has no link back to its parameter, so the
+  check cannot tell another function's parameter under one of f's ids); if either fires on a valid program, that
+  producer is a bug to raise.
 
 - **Checker rejects valid alias uses in const / untyped-literal contexts** — 🔵 OPEN (found
   2026-09-26).  Spec type.alias.transparency: an alias is its target in every context.  But with

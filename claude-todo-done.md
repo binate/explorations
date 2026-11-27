@@ -1,3 +1,32 @@
+### Native, LLVM and VM: an operand that is not one of the function's own values is an error — DONE (binate `12c077301`, 2026-11-27, claude/exciting-davinci-wahyt2 session; user: "1. yes, go ahead and land")
+
+Value ids restart at 0 in every function and every backend names an operand by its id, so an operand that was another
+function's instruction or parameter silently read f's value of that id (found 2026-11-11, review of the
+phi-predecessor check; by reading; no producer found).  New `irbuild.ForeignOperandError(f, mv)` checks every operand
+(`ins.Args` and each phi entry's `Val`) in `f.Blocks` and `f.FaultPads`: it must be nil, one of f's own instructions
+(an id-indexed array built from `blk.Instrs`, never `InstrsVec`, compared by identity), an `OP_PARAM` held by
+`f.ParamRefs` under one of `f.Params`' ids, or a global pseudo of the module being lowered (matched by address in
+`irbuild.ModuleValues`, gathered at the first one; not `f.Mod`, which helpers leave unset), and the first foreign one
+is named with its function, block or pad, op, index and why.  `iropt.EliminatePhis` sets a new
+`ir.Func.PhisEliminated`; the VM's two call sites (`lowerFunc`, `funcFrameBytes`) skip the check once it is set (user
+2026-11-14: "Q1. (b)"), and the checker reports such a function as an error, so native and LLVM fail loudly if one
+ever reaches them.  Wiring: native `common.EmitObject` (`native: ...`), LLVM `emitFuncDbg` through `funcIRError` (a
+panic), VM `lowerFunc` and `funcFrameBytes`; `vm.FrameCheck` takes the module.  Cost (user 2026-11-26: "1. yes" to
+folding a cheaper form in): the common test is inline, the helpers take raw pointers, the parameter refs are fetched
+once per function, and one id array is reused across a module's functions (cleared over the whole range, each lookup
+bounded by the function's range) -- by callgrind instruction counts +0.13% of native -O0, +0.09% of -O2, +0.11% of
+LLVM -O0 (bnc only) and +0.22% of the VM loading cmd/bnc, against +0.31%, +0.24%, +0.26% and +0.56% for the first
+version.  Panic's detached nil (`irgen/gen_panic.bn`) never becomes an operand: panic has no value.  Tests in irbuild
+(each foreign and accepted kind; the reused array after another or a larger function, under a used, an unused and an
+out-of-range id, in a block and in a pad), native/common, codegen, iropt (the flag) and vm (each entry point's
+module; the gates); each fails with its part undone, the wiring's included.  Validated on the same change one clean
+rebase earlier (base binate `d8dcb90c6`; hygiene re-run on the landed tree): unit tests of 28 packages, conformance
+on the VM, native x64 -O0 and -O2 and LLVM -O0 (0 failed), cmd/bnc built by itself on native x64 -O0 and -O2, LLVM
+x64 -O2 and cross for native aarch64 and arm32, bni on native x64, every conformance program under that bni with
+every IR pass forced on (plain and `--check-nil`; only the known 1750), e2e repl and the runfunc hosts; two rounds of
+two reviews.  The check never fired on a valid program.  Left open: cheaper still, duplicate ids, a parameter ref's
+parameter (todo entry).
+
 ### Native: indirect calls keep a slot that only x64 uses — DONE (binate `5d438d81c`, 2026-11-26, work-3; user: "we should probably take those on")
 
 RegMap.StashesCallTarget, set by x64 alone (it keeps an indirect call's target, R11, in the call's slot while it
