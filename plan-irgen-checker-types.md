@@ -301,10 +301,17 @@ IR-gen cannot map is an internal error, never `int`.
          pass over every loaded package: a dead second TypeAliases entry and TYP_NAMED per declaration, and
          an alias record in AliasDecls the name no longer held.  They register through registerTypeDecls now.
          Objects unchanged (codegen-ab: LLVM all three corpora, native multi + bnc).
-       - 5c-2d-2: the shared steps (struct names, stashes and stubs, type declarations, interfaces, fields)
-         the passes take in one order; a pass over several packages takes each step for all of them before
-         the next, until 5c-2e's lazy registration of structs and named types makes the order free.  Fields
-         fill once (ModuleStruct.Fields, read only by tests, mirrors the type's).
+       - 5c-2d-2 DONE (binate 5d0d35bc0, 2026-11-26; user: "yes, go ahead"): the shared steps
+         (gen_type_steps.bn: registerStructNames, registerTypeStubs, registerOpaqueForwards, registerTypeDecls,
+         collectDeclaredInterfaces, fillDeclaredStructFields) the seven passes take in one order; a pass over
+         several packages takes each step for all of them before the next, until 5c-2e's lazy registration of
+         structs and named types makes the order free.  Fields fill once (ModuleStruct.Fields, read only by
+         tests, mirrors the type's).  Kept per pass: the module passes' interface collection interleaved with
+         their globals, RegisterSelfTypes' opaque stamping, the REPL's forward types and per-declaration field
+         fill.  One fix with it: a `.bni`-only package's alias declared before the opaque type it names (an
+         internal error before).  The review caught a `.bni` forward defined in source being marked
+         opaque-exported (registerOpaqueForwards skips a forward the list defines).  Objects unchanged
+         (codegen-ab: LLVM all three corpora, native multi + bnc); irgen 865.
      - 5c-2e: fields, underlyings, method sets from the checker's type of the declaration (its record), not
        its TypeExpr; then the mapper registers a named type / struct it meets unregistered from that type, so
        no pass order leaves one nil (the pre-registration passes stay for declaration order).  The aliases'
