@@ -149,3 +149,36 @@ or be stripped to `main.T` (indistinguishable) — DECISION.
   next @T }`, groups).
 - Audit the places that treat `__` names as compiler-generated (isInjectableStructDtor,
   WriteStructLeafToken, findAnonStruct).
+
+## Stage 8 of plan-irgen-checker-types.md (2026-11-27, work-6) -- approach B, now
+
+What the IR-gen stages left in place: IR-gen takes every type from the checker's records (stages 1-7), registers
+a declaration under the name its record carries (5c-1: declaredTypeName = the checker Type's bare name), names a
+method after its receiver's record (5d-1) and an impl row after its receiver's and interfaces' records (5d-2),
+takes a declared type's fields / underlying / method set from its record (5c-2e-1), and registers a type it meets
+unregistered from the checker's type (5c-2e-2).  So a definition whose checker Type carries an internal name
+(`__repl2_T`) is registered, emitted and dispatched under it with no IR-gen change of the kind the review above
+listed -- the IR-gen work left is the audit of `__` names and the runtime name.
+
+Decisions:
+- Semantics 1 (compatible redefinition): a definition identical to the current one keeps the existing type (and
+  its methods and impls); anything else shadows -- claude-notes.md "Redefinition in the REPL" (a compatible
+  redefinition replaces, an incompatible one shadows; for a type, compatible is the same type).
+- Runtime name (2026-11-27; user, asked whether the new type prints `main.T` or `main.T#2`: "main.T, as written
+  (Recommended)"): the new type's typeinfo name, which `%T` and an assertion panic print, is `main.T`; an old
+  value also prints `main.T` (its typeinfo is already in the VM).  Diagnostics still mark the old one "T
+  (shadowed)" (decision 6 above).
+
+Steps:
+- 8-1: a non-generic type.  Checker: at the prompt, a `type T ...` over a session type T that is not identical
+  mints the internal name `__repl<N>_T` (no '.': checkerBareName cuts at the last one), binds T to it, and the
+  type-over-type rejection (check_redefinition.bn) goes for that case; an identical one is a no-op.  Display:
+  diagnostics print the internal name as `T` and an old shadowed type as "T (shadowed)"; typeinfo names drop the
+  internal prefix.  The REPL warns ("type T shadowed (incompatible definition); existing values and code keep the
+  old type").  IR-gen: the audit of names treated as compiler-generated (`__`), and a method expression `T.M`
+  named from its record (5d-1 review note a).  Tests: e2e/repl.sh cases with values, methods, impls, helpers
+  (destructors) and `%T` of both definitions.
+- 8-2: interfaces (an identical method set and parents keep the interface; otherwise a new identity).
+- 8-3: across kinds (a type over another kind of name, and the reverse, as ordinary shadows).
+- 8-4: generic types (decision 7 above: in scope; the instance cache and stashes key by declaration --
+  stashedGenericDecl's identity match, 5d-2 review note).
