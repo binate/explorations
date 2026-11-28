@@ -1139,21 +1139,16 @@ Fix: the checker rejects `==` / `!=` with an operand that is a function (a funct
 function named as a value, and likely a method value), as it does a function-typed variable.  Test: a conformance
 error test (spec/13) for each operand form, and a check unit test.
 
-### REPL: the loaded files share one import scope, which the prompt sees — 🟡 IN PROGRESS (claimed 2026-11-26, work-7/session; user: "It seems like the most natural thing is for each file to have its own scope, and for the repl prompt to be its own scope too.") (minor: invalid programs accepted, valid ones rejected; the bnc / bni part is done, binate `16aa03afe`)
+### REPL: a "source" mode, and a prompt declaration taking a loaded file's import name — 🔴 NEEDS DECISION (found 2026-11-27, work-7, the REPL's per-file import scopes, binate `ead38816c`)
 
-`bni -repl` (repl.NewKernel) checks the loaded main program with `CheckProgramPersistent`, which registers every
-loaded file's imports in the session scope: a loaded file may use another's import, two loaded files may not bind one
-name to different packages, and the prompt sees every loaded file's imports.  bnc and bni outside the REPL scope a
-main program's imports per file (spec §16.3 `pkg.import.scope`, binate `16aa03afe`).  The user's direction
-(2026-11-26): each file has its own import scope and so does the prompt, which sees the program's top-level
-declarations but none of the loaded files' imports, and imports what it uses; making a file's imports available to
-the prompt "feels less like loading a file (like bnc and bni do), but more like "sourcing" a file (as if it were
-entered at the repl)".  Plan: build file scopes in checkMainPersistent; give a loaded file's generics, through their
-file scope, a view of the session as of their declaration (viewedScope handles only the session scope itself); give
-the prompt an import scope of its own; move the e2e/repl.sh cases that use the fixture's `testing` import at the
-prompt (most of its ~176) and the check / repl unit tests that do the same to prompt imports.  Open question to the
-user: a "source" mode (a file's imports and declarations entered as if typed at the prompt) -- with this, later, or
-not at all.
+Since binate `ead38816c` each file `bni -repl` loads has an import scope of its own, and so does the prompt, which sees
+the program's top-level declarations but none of the loaded files' imports.  Two questions for the user:
+(1) a "source" mode, which enters a file's imports and declarations as if typed at the prompt (the user, 2026-11-26:
+making a file's imports available to the prompt "feels less like loading a file (like bnc and bni do), but more like
+"sourcing" a file (as if it were entered at the repl)") -- wanted, and when?
+(2) with a loaded file importing `testing`, `var testing int = 3` at the prompt is an ordinary declaration (no
+warning), and the file keeps its import; in a program's files `pkg.import.conflict` rejects that pairing, and the
+spec says nothing of the REPL.  Keep it accepted, or reject it at the prompt too?
 
 ### An alias whose array length reads a composite of a type pointing back at the alias is a "recursive alias" in one declaration order — 🔴 OPEN (minor: a valid program rejected; found 2026-11-09, work-1, review of the deep-nesting dependencies-first stage; on main at binate `f55523b7e`; pre-existing)
 

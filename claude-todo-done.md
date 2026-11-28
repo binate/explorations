@@ -1,3 +1,23 @@
+### REPL: the loaded files share one import scope, which the prompt sees — DONE (binate `ead38816c`, 2026-11-27, work-7; user: "It seems like the most natural thing is for each file to have its own scope, and for the repl prompt to be its own scope too."; landed on "wait 11 minutes, then land"); its two open questions are a NEEDS DECISION entry in claude-todo.md
+
+`bni -repl` checked the loaded main program with every loaded file's imports in the session scope: a loaded file
+could use another's import, two loaded files could not bind one name to different packages, and the prompt saw every
+loaded file's imports.
+
+Fix (binate `ead38816c`): checkMainPersistent builds the files' import scopes as checkMain does (binate
+`16aa03afe`), and drops them before the session goes on, so the prompt has an import scope of its own: it sees the
+program's top-level declarations but none of the loaded files' imports, and imports what it uses.  A loaded file's
+generics resolve through a view of their file scope over the session as of their declaration (viewedScope,
+fileView), so a later prompt that rebinds an import's name or a declaration does not change what an instance
+reads -- for generic functions, types, aliases, interfaces and parameterized impls.  A loaded program is held to
+`pkg.import.conflict`, as bnc's is.  No spec change: the spec says nothing of the REPL's scopes.  Tests:
+check_repl_versions_test.bn's TestReplMainFileImportIsTheFiles and TestReplMainFileGenericTypesKeepTheFilesNames
+(both fail without the file view, the first also with the files' imports merged into the session); 168 e2e/repl.sh
+sessions import at the prompt what they use there; a new e2e case, main-file-import-is-the-files, runs a file's
+generic through the VM.  Its review found two older bugs, filed open in claude-todo.md: a prompt import does not
+resolve a declaration parked on the name it binds; a function's name compared with `==` is accepted, and IR-gen
+panics.
+
 ### An array length in a function literal's body in a package variable's initializer took that variable's placeholder for an error — DONE (binate `cc76b7a07`, 2026-11-27, temp-5; step 1's stage (c) of plan-placeholder-reads.md; landed on "wait 7 minutes, then land") (part of the open entry "An array length checked while its variable's type is found takes that variable's placeholder for an error" in claude-todo.md, which keeps the rest)
 
 binate `cc76b7a07`: a `len` operand with a head inside a function literal's body, in a package variable's initializer,
