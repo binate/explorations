@@ -222,6 +222,9 @@ comp-comp-comp (25-37 min) and conformance arm32 Linux (LLVM 20-27, native 15-16
 builder-comp_arm32_linux took 45.2 (cut), 38.4 and 45.0 (cut) min -- gen1 build 8 min, tests 36.7 min on the last,
 where irgen's took 805 s; and conformance int-int still has 1-2 of 12 shards cut at 60 min per run (a different
 shard each run; the others 36-51 min), so it is the lane's length plus runner variance, not one slow shard.
+Landed binate `5041998d2` (2026-11-28; user: "Cap 60", "15 shards"): the unit builder-comp_arm32_linux lane gets
+the 60-min cap and conformance int-int runs in 15 shards.  Open: confirm on the next completed unit and
+conformance runs, then close this entry.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
