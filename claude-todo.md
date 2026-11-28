@@ -1111,6 +1111,25 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
+### After an import that fails to load, the REPL never orders a later import's packages, and the session aborts — 🔴 OPEN (MAJOR: a REPL session aborts with an internal error; found 2026-11-28, work-7, probing the parked-declaration fix; reproduced with a bni built from binate `ead38816c` plus that fix, and with one from before the fix)
+
+At the REPL, after an import that fails to load (a path not found), the next import of a package that declares a
+type aborts the session:
+
+    > import "pkg/nosuch"
+    package "pkg/nosuch" not found
+    > import "pkg/builtins/testing"
+    panic: internal error: the checker kept no record of the type at .../testing.bni:16:1 for IR-gen (compiler bug)
+
+An import that fails after a good one does it no harm.  Cause: `Loader.LoadImports` (and `LoadImplicitDep`)
+recompute the package order only while the loader's error list is empty (pkg/binate/loader/loader.bn, `if
+len(l.Errors) == 0 { l.computeOrder() }`), and the REPL's loader keeps its errors for the whole session.  A later
+import's packages are loaded but never enter `Ldr.Order`; the REPL's import (repl mid_session_import.bn,
+importSpecs) walks the order, so it neither checks nor lowers them, and IR-gen then meets their types unrecorded.
+Fix: recompute the order when the call itself added no errors (count them on entry); and check what a retried import
+of a package whose dependency failed to load does then (the loader keeps that package, which GetPackage finds, so
+the retry loads nothing).  Test: an e2e/repl.sh session (the transcript above, then a use of the package).
+
 ### A prompt import does not resolve a declaration parked on the name it binds — 🟡 IN PROGRESS (claimed 2026-11-27, work-7/session; user: "yes") (minor: valid REPL sessions rejected; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`, with a bni built from it plus the REPL change since landed as `ead38816c`, which leaves this path alone)
 
 At the REPL a declaration naming a package not yet imported parks on the package's name, and the import that then
