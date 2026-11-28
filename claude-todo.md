@@ -1387,16 +1387,6 @@ C/C++/Rust/Go/Java/Python on shared problems, so it feeds the native↔LLVM gap
 work below. Added as the workspace's `benchmarks/` submodule. Plan and benchmark
 list: `plan-benchmarks.md`. Direction: add benchmarks a couple at a time.
 
-### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — 🟡 IN PROGRESS (claimed 2026-11-26, work-3; user: "we should probably take those on") (found 2026-11-24, work-3, review of the aggregate-parameter slots)
-
-A zero-size aggregate parameter (a `struct{}`) gets no data region -- PlanFrame gives one only for a nonzero size
--- so it keeps a spill slot, but every prologue skips it (aarch64_emit_params.bn's spillAggregateParamAA64,
-x64_emit_params.bn and arm32_spill_aggregate.bn return at size 0), so getOperand reads an uninitialised word as the
-value's address.  Nothing reads through a zero-size value, so it is likely harmless in practice, but it reads
-uninitialised memory and costs a slot.  Check how a zero-size aggregate instruction value (which also gets no
-region, planRegions) is represented, then either give the parameter no slot with an address of its own or write
-that address in the prologue, and cover it with a test that takes its frame from PlanFrame.
-
 ### Native x64: an indirect call with no value id keeps its target nowhere — 🔴 OPEN (found 2026-11-26, work-3, review of the indirect-call slot change)
 
 x64 keeps an indirect call's target (R11) in the call's own spill slot while it places the arguments

@@ -1,3 +1,12 @@
+### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — DONE (binate `65d14f26e`, 2026-11-27, work-3; user: "we should probably take those on")
+
+PlanFrame gives a zero-size aggregate parameter a zero-byte data region and no spill slot: its value is the
+region's address (sp + offset), as a zero-size instruction value's is an address nothing reads through, and no
+prologue had anything to write.  It takes no argument word, so it never arrives in caller memory and no local is
+used in place of it.  irgen's / check's native frames shrank by 160 / 272 bytes (aarch64), 176 / 272 (x64), 128 /
+192 (arm32).  Covered by a unit test on AAPCS32 / AAPCS64 / SysV and conformance 1772 (passed on directly, through
+a function value, from a closure capture, kept, returned, after eight ints).
+
 ### A main program of several files does not scope its imports per file — DONE for bnc and bni (binate `16aa03afe`, docs `f49369a`, 2026-11-27, work-7; user: "I guess we can take 2. on next if it still applies"; landed on "wait 16 minutes, then land; then continue"); the REPL's part is open in claude-todo.md
 
 bnc and bni took a main program of several files (`bnc a.bn b.bn`, `bni dir/`) and checked it with every file's
