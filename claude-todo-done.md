@@ -1,3 +1,20 @@
+### A main program of several files does not scope its imports per file — DONE for bnc and bni (binate `16aa03afe`, docs `f49369a`, 2026-11-27, work-7; user: "I guess we can take 2. on next if it still applies"; landed on "wait 16 minutes, then land; then continue"); the REPL's part is open in claude-todo.md
+
+bnc and bni took a main program of several files (`bnc a.bn b.bn`, `bni dir/`) and checked it with every file's
+imports in one scope, while a package's files each have an import scope of their own: a file could use a package
+only another file imported, and two files could not bind one name to different packages ("`t` names two imported
+packages").
+
+Fix (binate `16aa03afe`): `Checker.CheckProgram` builds the files' import scopes as CheckPackage does (buildFileScopes), so
+each declaration, and each instance of a generic one, resolves against its own file's imports.  From the review:
+file scopes are found by file name, so two files of one name, or an unnamed file beside named ones, are now errors
+(an embedder's interp.LoadProgram could give either, and the second file resolved against the first's imports, or
+none); an import taking a package-level declaration's name, once reported, is dropped from the file scopes, so no
+"cannot call non-function" follows.  Spec (docs `f49369a`): §16.3 `pkg.import.scope` and `pkg.import.conflict` (an
+import may not bind a package-level declaration's name, which the checker already enforced), and a file level in
+§9.6 `decl.scope.levels`.  Tests: check's program_scope_test.bn; e2e/multi-file-main.sh (bnc and bni);
+conformance 830, 831, 834, 835 moved to spec/16-packages as 127-130 with the new rules.
+
 ### Native arm32: the hidden sret slot and small allocas still take 8 bytes — DONE (binate `3394bfff6`, 2026-11-26, work-3; user: "we should probably take those on")
 
 The sret slot takes a word (CC.WordBytes), and a local's slot is its type's size rounded up to a word at its type's

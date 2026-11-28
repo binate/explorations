@@ -1121,21 +1121,21 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A main program of several files does not scope its imports per file: a file may use another file's import, and two files may not bind one name to different packages — 🟡 IN PROGRESS (claimed 2026-11-26, work-7/session; user: "I guess we can take 2. on next if it still applies"; both probes still reproduce on binate `1171cc92e`) (minor: invalid programs accepted, valid ones rejected; found 2026-11-02, work-7, checking the import-once rule per file; reproduced with a compiler built from binate `7e61ac730`; pre-existing)
+### REPL: the loaded files share one import scope, which the prompt sees — 🟡 IN PROGRESS (claimed 2026-11-26, work-7/session; user: "It seems like the most natural thing is for each file to have its own scope, and for the repl prompt to be its own scope too.") (minor: invalid programs accepted, valid ones rejected; the bnc / bni part is done, binate `16aa03afe`)
 
-bnc and bni take a main program of several `.bn` files (`bnc a.bn b.bn`).  The loader merges them (LoadRoot /
-MergeFiles), and the checker checks the merge with `Check`, which registers every file's imports in one scope —
-while a package's files each get their own import scope (checkPackageImpl / buildFileScopes, binate `cf0d1cadb`).  So
-a main program whose a.bn imports `pkg/builtins/testing` and whose b.bn calls `testing.Println` without importing it
-builds and runs; and one whose a.bn has `import t "pkg/builtins/testing"` and b.bn `import t "pkg/builtins/lang"` is
-rejected ("`t` is imported more than once (pkg/builtins/testing and pkg/builtins/lang); give one of them an explicit
-alias"), which a package's two files may do.  Whether IR-gen resolves a main program's qualifiers per file is
-unchecked.  The spec says nothing of imports being file-scoped (§9.6 `decl.scope.levels` lists universe, package and
-block scopes), so a rule is needed there too.  Fix: check a main program's files as a package's are, with an import
-scope per file; the import-once change (binate `eaf5c546b`) added `Checker.CheckProgram(merged, files)` and
-`CheckProgramPersistent`, which the bnc, interpreter and REPL drivers call with LoadRoot's per-file ASTs, so the file
-scopes can be built there.  Tests: to add — unit tests through CheckProgram, expected to fail until the fix, and an
-e2e case (the conformance runner builds a main program from one main.bn).
+`bni -repl` (repl.NewKernel) checks the loaded main program with `CheckProgramPersistent`, which registers every
+loaded file's imports in the session scope: a loaded file may use another's import, two loaded files may not bind one
+name to different packages, and the prompt sees every loaded file's imports.  bnc and bni outside the REPL scope a
+main program's imports per file (spec §16.3 `pkg.import.scope`, binate `16aa03afe`).  The user's direction
+(2026-11-26): each file has its own import scope and so does the prompt, which sees the program's top-level
+declarations but none of the loaded files' imports, and imports what it uses; making a file's imports available to
+the prompt "feels less like loading a file (like bnc and bni do), but more like "sourcing" a file (as if it were
+entered at the repl)".  Plan: build file scopes in checkMainPersistent; give a loaded file's generics, through their
+file scope, a view of the session as of their declaration (viewedScope handles only the session scope itself); give
+the prompt an import scope of its own; move the e2e/repl.sh cases that use the fixture's `testing` import at the
+prompt (most of its ~176) and the check / repl unit tests that do the same to prompt imports.  Open question to the
+user: a "source" mode (a file's imports and declarations entered as if typed at the prompt) -- with this, later, or
+not at all.
 
 ### An alias whose array length reads a composite of a type pointing back at the alias is a "recursive alias" in one declaration order — 🔴 OPEN (minor: a valid program rejected; found 2026-11-09, work-1, review of the deep-nesting dependencies-first stage; on main at binate `f55523b7e`; pre-existing)
 
