@@ -1150,6 +1150,17 @@ that names a package before importing it at the prompt hits this more often.  Fi
 waiting on the names a prompt import binds, as a declaration's resolution does.  Test: an e2e/repl.sh session (the
 transcript above).
 
+### A package's name used as a value is accepted by the checker and crashes IR-gen — 🔴 OPEN (minor: an invalid program crashes the compiler, and ends a REPL session; found 2026-11-28, work-7, review of the parked-declaration fix; reproduced with a bni built from binate `ead38816c` plus that fix)
+
+`var v = testing`, with `testing` an import's name -- at package level, as a local, or at the prompt -- passes the
+checker, and IR-gen aborts: "internal error: IR-gen has no a value that the checker resolved testing to (compiler
+bug)".  As the argument of a `...*any` parameter (`testing.Println(testing)`) it is "cannot assign nil to *any", a
+misleading message.  The spec uses an import's name only as the qualifier of `name.Member` (§13.1 `expr.primary`,
+§13.8 `expr.member`, §16.3), and never makes one a value, though no rule says so in as many words.  Fix: the
+checker rejects an import's name anywhere but as a selector's qualifier (e.g. "use of package testing without a
+selector"); whether the spec gets a rule saying so is the user's call.  Test: `_err_` conformance tests (a
+package-level variable, a local, an argument), and an e2e/repl.sh case.
+
 ### A function's name compared with `==` / `!=` is accepted by the checker and crashes IR-gen — 🔴 OPEN (minor: an invalid program crashes the compiler, and ends a REPL session; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`)
 
 Spec §13 `expr.compare.incomparable`: function values are never comparable, not even to nil.  The checker rejects
