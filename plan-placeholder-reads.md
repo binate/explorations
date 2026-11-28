@@ -3,8 +3,9 @@
 Status: design v3.1, 2026-11-26 (temp-5): the head rule (user 2026-11-26: "Head rule (Recommended)"), replacing v2's
 design -- declarations pending on a placeholder, undone and resolved again, with errors owned by declarations -- after
 a review of v2 against binate main `6ec2bc17e` found that undo without a clear edge.  v3 was reviewed the same day,
-and v3.1 takes in its findings (section 9); its two questions are decided (section 8).  Covers six `claude-todo.md`
-entries:
+and v3.1 takes in its findings (section 9); its two questions are decided (section 8).  Step 1's first stage -- 3.1
+and 3.2 at a package's top level, outside builds and function literals -- landed 2026-11-27 (binate `e0973fa62`, docs
+`89d8f4c`), with entries 4 and 5.  Covers six `claude-todo.md` entries:
 
 1. "An array length checked while its variable's type is found takes that variable's placeholder for an error: its
    errors are lost, and a variable read before its turn is a false cycle".
