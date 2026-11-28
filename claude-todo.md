@@ -241,22 +241,6 @@ shard each run; the others 36-51 min), so it is the lane's length plus runner va
   (HTTP 504) reddened the 710e52d5d set; later runs were all cancelled by newer pushes.
   Since then (2026-11-10, work-3): check's TestDeepTypeLimitAlias passes natively on aa64 (binate `288044551`),
   and check's whole suite passes on the bare-metal lane locally (binate `72a601204`, `be5bcd88d`; done log).
-- 🟡 IN PROGRESS (claimed 2026-11-12, work-3; user: "let's go back to the release items for now") **pkg/binate/check's
-  tests time out the VM lanes and now the bare-metal lane.**  Unit run at binate `d26a860d6` (2026-11-11): the
-  bare-metal lane was cut at its 30-min cap 20 min into check (with 512 MiB the deep tests no longer die early, so
-  check runs its whole suite under QEMU); builder-comp-int 5/6 and 6/6 and builder-comp-comp-int 1, 2, 5 and 6 of 6
-  were cut inside check; int-int 1, 4 and 8 of 12 were cut in check's tests.  (The other shards' 4-min failures were
-  an apt DNS outage.)  Measured (locally, per test): under bare-metal QEMU check's suite takes 32 min, 29 of them in
-  the 81 TestDeep tests and 3 in the long-chain tests the int-int lane skips; under the single VM it takes 72 min, 57 of
-  them TestDeep, 11 TestCheckLongNamedChainsAreNotCycles, ~4 the other long-chain tests, ~20 s the other ~1,960 tests.
-  Bare metal DONE: binate `76f999190` restores the skip work-3's `6b46c3244` dropped (plan-deep-nesting's design: the
-  deep tests skip bare metal and int-int), with the int-int list; check now takes under a minute there, and CI's
-  bare-metal lane passed in 16 and 20 min on the next two unit runs.  Single-VM DONE: binate `236fc20ec` (user: "1.
-  yes, go for it"; finer sharding not wanted: "2. ok, leave it as-is"): builder-comp-int and builder-comp-comp-int skip
-  the int-int list too (locally check takes 143 s / 214 s on those lanes, builds included).  Open: confirm on CI's
-  next unit run that no single-VM shard times out in check (2026-11-26: one did, on TestUnnamedBuildKeepsLimits,
-  skipped there since binate `dfd90afce`).  The int-int lane's own overrun (check's parts and an
-  every-shard load of types / ir) is the slow-lanes entry's (binate `907e25509`).
 
 ### IR-gen spells every type argument out in an instance's name — instances whose arguments share a type get exponentially long names — 🔴 NEEDS DECISION (found 2026-10-26, work-7, testing the abstract-instance change's shared-argument walk; reproduced on main; pre-existing)
 

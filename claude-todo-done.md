@@ -1,3 +1,12 @@
+### CI red on main: pkg/binate/check's tests time out the VM lanes and the bare-metal lane — DONE (confirmed on CI 2026-11-27, work-3)
+
+Unit runs at binate d8dcb90c6, 5d0d35bc0 and 5eac8e920 (2026-11-26/27), after `dfd90afce` put check's
+TestUnnamedBuildKeepsLimits (1912 s on the single VM) on the VM lanes' skip lists and check's tests taking 0.5 s or
+more on the int-int list: every builder-comp-int and builder-comp-comp-int shard passes, as does the bare-metal
+lane (31 min) and every int-int shard (longest 48 min).  Earlier steps: bare metal `76f999190`, single VM
+`236fc20ec` (the TestDeep and long-chain tests skip those lanes).  The unit arm32 Linux lane's and the conformance
+int-int lane's remaining overruns are the slow-lanes entry's.
+
 ### Native: a zero-size aggregate parameter's value is read from a slot nothing writes — DONE (binate `65d14f26e`, 2026-11-27, work-3; user: "we should probably take those on")
 
 PlanFrame gives a zero-size aggregate parameter a zero-byte data region and no spill slot: its value is the
