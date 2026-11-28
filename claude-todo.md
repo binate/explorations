@@ -402,6 +402,22 @@ orders and for a correctly sized `bit_cast` (`x [len(bit_cast([8]uint8, V))]uint
 placeholder-reads plan (explorations/plan-placeholder-reads.md) touches the same check, for an operand of the error
 type.
 
+### An instance first built while a generic function's signature is derived judges what its array lengths' literals form as derived: a too-large interface instance is accepted — 🔴 OPEN (minor: ill-typed code that is never compiled accepted; found 2026-11-28, temp-5, review of plan-placeholder-reads.md step 1's stage (b); reproduced on binate main `cc76b7a07`; pre-existing)
+
+With `interface I[T any] { m() (T, T) }`, `type G[T any] struct { a [len(pick(func() int { var i @I[[1 << 62]T];
+_ = i; return 0 }))]int; t T }`, `func mk[T any]() G[T] { var g G[T]; return g }` and `var V = mk[uint8]()`, the
+program compiles.  With `var V G[uint8]` (G[uint8] built directly), or G[uint8] built in a function body, it is
+"the results are too large together" for I[[1 << 62]uint8]'s m, as it should be.  Here G[uint8] is first built
+while mk[uint8]'s signature is derived for V's head (Generics.DerivingInstanceSig), so the instantiations the
+literal forms are not user-facing (instantiateGenericDeclWithArgs): resolveIfaceInstanceMethods and
+requireInstantiatedIfaceMethodsSized never size I[[1 << 62]uint8]'s methods, and no later check of the instance
+does.  The literal is code the program writes: what it forms is a use wherever the instance holding it was first
+built.  Constraint misses in it are reported, and so are the instance's own errors; only the sizing is lost.  Fix:
+judge what such a literal forms as a use -- e.g. the check of a `len` operand of a build made in a derivation runs
+with DerivingInstanceSig cleared (check_len_head_build.bn sets it again for that check), or the interface
+instances it names are sized when that check is made -- with conformance tests of the program above and of the
+direct build.
+
 ### Does populateInstantiatedInterface's speculative (`userFacing` false) path still have a valid-program case? — 🔴 OPEN (cleanup question; found 2026-10-16, work-5, review of the generic-type method-signature sizing)
 
 The split exists so an impl-match probe that instantiates an interface (`Consumer[Wrap[Op]]` probing `Wrap[Op]`'s
