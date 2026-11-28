@@ -12,6 +12,17 @@ type keyed by declaration rather than instance, a false S1 cycle for reads insid
 a head that is no array, and a bare member's errors moved to the explicit member's line; each was fixed, with a test,
 before landing.  Tests: check_len_head_test.bn, TestBitCastErrorOperandNoSizeVerdict, conformance spec/09 183-188.
 
+### Checking is quadratic in a package's number of declarations: a `.bni` build's lookups and lists -- DONE (binate `bf7609b18`, 2026-11-27, work-1; user: "Land it"; the rest of the entry stays open)
+
+findBniTypeDecl / findBniVarDecl scanned every `.bni` declaration per lookup (each constant typed `int` scanned them
+all, missing); they go through a bniDeclIndex (check/bni_decl_index.bn: each name's first type and first typed
+variable, in the scans' order, built lazily and saved / restored beside Checker.BniDecls).  BniTypesResolved is a
+declSet (nil for none), the build's TypesResolving / IfacesResolving / IfacesResolved declSets, its VarsCycled a
+nameList.  16,000 typed constants and 16,000 typed variables in a `.bni` 0.86-1.09 s from 2.33-2.53 s; cmd/bnc's IR
+on 3 targets, all 3,014 corpus programs and the 361 multi-package conformance tests identical to main's; the 42
+`.bni` conformance tests pass on the VM; bnlint-self clean; the review's 12 probes identical.  Tests:
+TestBniDeclIndex, TestBniTypeResolved.
+
 ### A type read in its own array length where its value is not needed was checked with no underlying: an ill-typed literal there was accepted — DONE (binate `e0973fa62`, 2026-11-27, temp-5; step 1's first stage of plan-placeholder-reads.md; landed on "wait 8 minutes again, then land; then continue") (minor: ill-typed code that is never compiled accepted; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; pre-existing)
 
 With `func f2(x T) [3]int`, `type T [len(f2(T{true}))]int` compiles (T is a `[3]int`), though `T{true}` gives an int

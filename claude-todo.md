@@ -2872,16 +2872,16 @@ global since `438f0e242` / `6e9074441`; IR-gen's line stamping since `e82486ca6`
 `138221910`; irbuild's pending-dtor lists since `281dff253`; LLVM codegen's return-type table since `4e8613a31`;
 ir.LookupModuleFunc since `061119420` (claude-todo-done.md).  What is left grows with a package's number of
 declarations elsewhere:
-- the by-name resolution (binate `f55523b7e`): findBniTypeDecl / findBniVarDecl search the declarations by name (a
-  `.bni` constant's declared type `int` searches them all), and a `.bni`'s TypesResolving / BniTypesResolved are
-  appended by copying and searched linearly, so its deep unit tests take ~450 s on a single-VM lane, and its `.bni`
-  variable chain is 6,000 long, short of where the old recursion crashed (~12,000).  (The constants' lists,
-  findConstDecl and both declaration-start stacks are linear since `2b9f00809`, ConstResolving / ConstResolved
-  since `ca2b940a7`: a 20,000-constant chain 0.2 s, from 5.5-6.1 s; the batch's on-demand variable and function
-  lists since `f1cc83359`.)
-- a `.bni` build's IfacesResolving / IfacesResolved are appended by copying and searched linearly.  (The batch's
-  methods lists are declSets since `1171cc92e`, its checked / cycled / self-read / deferred variables since
-  `d10469049`, a package's interfaces and impls indexed and kept in vecs since `38bc19280`.)
+- a `.bni` build still scans its declarations for each function, method, interface and declared-name lookup
+  (findBniFuncDecl, findBniMethodDecl, bniIfaceDeclOf, bniDeclaresName); no probe so far makes them hot.  (The
+  constants' lists, findConstDecl and both declaration-start stacks are linear since `2b9f00809`, ConstResolving /
+  ConstResolved since `ca2b940a7`; the batch's on-demand variable and function lists since `f1cc83359`, its
+  methods lists since `1171cc92e`, its checked / cycled / self-read / deferred variables since `d10469049`; a
+  package's interfaces and impls since `38bc19280`; a `.bni` build's type and variable lookups and its lists since
+  `bf7609b18` -- re-time the `.bni` deep unit tests, which took ~450 s on a single-VM lane.)
+- IR-gen's privateToImport (registerGenericDeclsFlat) calls fileHasBni, which scans the file, once per
+  declaration: a `.bni` of 8,000 functions in a chain (`func Fi() [len(Fi+1())]int8`) takes 9.4 s, most of it
+  there; native aarch64's collectFuncValueRefs / lookupFuncValueTypeAA64 (each backend has one) takes a share.
 - the parser's statement lists are appended by copying (`slices.Append[@ast.Stmt]` in parseBlock, parse_stmt.bn,
   and in parse_repl.bn), so a block is parsed in time quadratic in its statements.  (Its error list takes constant
   time per error since `8d414cea5`.)
