@@ -216,6 +216,12 @@ TestUnnamedBuildKeepsLimits on the VM lanes' skip lists; check's 17 tests taking
 the int-int list; unit comp-comp and the arm32 lanes, conformance comp-comp-comp and builder-comp_arm32_linux at 45
 min; conformance int-int in 12 shards.  (binate `3118536cc` gave asm/x64/avx, optab and evex their int-int markers
 meanwhile.)  Open: confirm on the next completed unit and conformance runs, then close this entry.
+CI after it (runs on d8dcb90c6, 5d0d35bc0, 5eac8e920, 2026-11-26/27): the single-VM shards, unit int-int (all 12
+shards pass, longest 48 min), unit builder-comp-comp (33 min), unit arm32 bare metal (31 min), conformance
+comp-comp-comp (25-37 min) and conformance arm32 Linux (LLVM 20-27, native 15-16 min) all fit.  Still over: unit
+builder-comp_arm32_linux took 45.2 (cut), 38.4 and 45.0 (cut) min -- gen1 build 8 min, tests 36.7 min on the last,
+where irgen's took 805 s; and conformance int-int still has 1-2 of 12 shards cut at 60 min per run (a different
+shard each run; the others 36-51 min), so it is the lane's length plus runner variance, not one slow shard.
 
 ### CI red on main (unit run at binate `8d796d5f6`, 2026-11-09): slow format tests time lanes out, check dies on native aa64 (the NEON test fixed, binate `0d72b73e2`) — 🔴 OPEN (found 2026-11-08, work-3, reading CI; all three still apply at binate `9d84c4643`; not work-3's areas, unclaimed)
 
