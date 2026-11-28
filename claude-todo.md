@@ -1109,6 +1109,37 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
+### A prompt import does not resolve a declaration parked on the name it binds — 🔴 OPEN (minor: valid REPL sessions rejected; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`, with a bni built from it plus the unlanded REPL change, which leaves this path alone)
+
+At the REPL a declaration naming a package not yet imported parks on the package's name, and the import that then
+binds the name does not resolve it:
+
+    > var x pa.T
+    variable x parked (pending: pa)
+    > import "pkg/pa"
+    package pkg/pa loaded
+    > x.A = 5
+    <repl>:1:1: variable x is unresolved (pending: )
+
+The pending list prints empty, so the import cleared the missing name without resolving the declaration; the root
+cause is not traced yet (a declaration that binds a parked one's missing name resolves it; the prompt import path,
+repl mid_session_import.bn / Checker.RegisterReplImport, apparently does not).  It reproduces with a loaded file that
+imports nothing.  Once the prompt no longer sees a loaded file's imports (the claimed REPL entry below), a session
+that names a package before importing it at the prompt hits this more often.  Fix: resolve the parked declarations
+waiting on the names a prompt import binds, as a declaration's resolution does.  Test: an e2e/repl.sh session (the
+transcript above).
+
+### A function's name compared with `==` / `!=` is accepted by the checker and crashes IR-gen — 🔴 OPEN (minor: an invalid program crashes the compiler, and ends a REPL session; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`)
+
+Spec §13 `expr.compare.incomparable`: function values are never comparable, not even to nil.  The checker rejects
+two function-typed variables ("function values cannot be compared with == or !="), but not an operand that is a
+function's name: with `func q() int { return 1 }`, `testing.Println(q == q)` reaches IR-gen, which panics
+("internal error: IR-gen has no a value that the checker resolved q to (compiler bug)"), in bni and the REPL alike;
+`pa.F == pa.F`, a package's function, panics with "unresolved selector in IR-gen: pa.F" and ends the REPL session.
+Fix: the checker rejects `==` / `!=` with an operand that is a function (a function declaration or a package's
+function named as a value, and likely a method value), as it does a function-typed variable.  Test: a conformance
+error test (spec/13) for each operand form, and a check unit test.
+
 ### REPL: the loaded files share one import scope, which the prompt sees — 🟡 IN PROGRESS (claimed 2026-11-26, work-7/session; user: "It seems like the most natural thing is for each file to have its own scope, and for the repl prompt to be its own scope too.") (minor: invalid programs accepted, valid ones rejected; the bnc / bni part is done, binate `16aa03afe`)
 
 `bni -repl` (repl.NewKernel) checks the loaded main program with `CheckProgramPersistent`, which registers every
