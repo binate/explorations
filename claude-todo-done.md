@@ -18,6 +18,14 @@ generic through the VM.  Its review found two older bugs, filed open in claude-t
 resolve a declaration parked on the name it binds; a function's name compared with `==` is accepted, and IR-gen
 panics.
 
+### Checking is quadratic in a package's number of declarations: IR-gen's fileHasBni -- DONE (binate `e1cec734a`, 2026-11-27, work-1; user: "Land it"; the rest of the entry stays open)
+
+privateToImport, called for every declaration by registerGenericDeclsFlat (and per impl / generic method elsewhere),
+asked fileHasBni, which scanned the file's declarations up to the first `.bni` one.  GenCtx keeps the answer for the
+file last asked about and the list it scanned (BniFile / BniFileDecls / BniFileHas, held as managed references).  A
+`.bni` of 8,000 chained functions 4.69-5.45 s from 7.98-8.91 s; cmd/bnc's IR, all 3,021 corpus programs and the 361
+multi-package conformance tests identical to main's.  Tests: TestFileHasBni.
+
 ### An array length in a function literal's body in a package variable's initializer took that variable's placeholder for an error — DONE (binate `cc76b7a07`, 2026-11-27, temp-5; step 1's stage (c) of plan-placeholder-reads.md; landed on "wait 7 minutes, then land") (part of the open entry "An array length checked while its variable's type is found takes that variable's placeholder for an error" in claude-todo.md, which keeps the rest)
 
 binate `cc76b7a07`: a `len` operand with a head inside a function literal's body, in a package variable's initializer,
