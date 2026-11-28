@@ -2873,9 +2873,9 @@ declarations elsewhere:
 - a `.bni` build's IfacesResolving / IfacesResolved are appended by copying and searched linearly.  (The batch's
   methods lists are declSets since `1171cc92e`, its checked / cycled / self-read / deferred variables since
   `d10469049`, a package's interfaces and impls indexed and kept in vecs since `38bc19280`.)
-- the parser's error list is appended by copying (Parser.addError): 16,000 parse errors took 8.8 s.  Its
-  statement lists too (`slices.Append[@ast.Stmt]` in parseBlock, parse_stmt.bn, and in parse_repl.bn), so a block
-  is parsed in time quadratic in its statements.
+- the parser's statement lists are appended by copying (`slices.Append[@ast.Stmt]` in parseBlock, parse_stmt.bn,
+  and in parse_repl.bn), so a block is parsed in time quadratic in its statements.  (Its error list takes constant
+  time per error since `8d414cea5`.)
 - LLVM codegen's collectPackageGlobals appends a PkgGlobalEntry per global by copying (the package descriptor), so
   a package of 16,000 variables spends most of its own time there.
 - past the checker, a 32,000-method package (16,000 types with a method each, read by later variables' array

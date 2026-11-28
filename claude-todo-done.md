@@ -15,6 +15,17 @@ import may not bind a package-level declaration's name, which the checker alread
 §9.6 `decl.scope.levels`.  Tests: check's program_scope_test.bn; e2e/multi-file-main.sh (bnc and bni);
 conformance 830, 831, 834, 835 moved to spec/16-packages as 127-130 with the new rules.
 
+### Checking is quadratic in a package's number of declarations: the parser's error list -- DONE (binate `8d414cea5`, 2026-11-27, work-1; user: "Land it"; the rest of the entry stays open)
+
+Parser.addError appended each error by copying, and the bracket-element snapshots (parse_postfix.bn) held the list
+by value.  Errors go into an append-only arena (errList / errPrev); the current list is its last error's position
+and its count, which is all a snapshot holds, so an add takes constant time however the parser backs up; Errors()
+builds the slice, cached by the last position.  A first version (a vec, copied after a restore) was still quadratic,
+and slower than main when both bracket readings error; a review found it.  8,000 lines mixing bad bracket elements,
+type switches and composite literals 0.18-0.20 s from 160-185 s; 16,000 malformed interface declarations 0.10 s from
+14.3-15.8 s; diagnostics byte-identical; cmd/bnc's IR and all 2,999 corpus programs identical to main's.  Tests:
+TestRestoreParseStateErrors, TestErrorsKeepsEarlierLists.
+
 ### Native arm32: the hidden sret slot and small allocas still take 8 bytes — DONE (binate `3394bfff6`, 2026-11-26, work-3; user: "we should probably take those on")
 
 The sret slot takes a word (CC.WordBytes), and a local's slot is its type's size rounded up to a word at its type's
