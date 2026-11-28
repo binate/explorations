@@ -1,3 +1,20 @@
+### An array length in a function literal's body in a package variable's initializer took that variable's placeholder for an error — DONE (binate `cc76b7a07`, 2026-11-27, temp-5; step 1's stage (c) of plan-placeholder-reads.md; landed on "wait 7 minutes, then land") (part of the open entry "An array length checked while its variable's type is found takes that variable's placeholder for an error" in claude-todo.md, which keeps the rest)
+
+binate `cc76b7a07`: a `len` operand with a head inside a function literal's body, in a package variable's initializer,
+is queued and checked in full once every declaration has its type, as binate `e0973fa62` does at a package's top
+level -- only when the current scope is in the innermost literal's body (inLiteralBody), so a generic alias's target
+or a copied method's signature resolved from there keeps checking at once (queueing a copied method's signature
+broke TestMethodCopyDemandDuringCopy: a copy of an instance's methods made later copies only the selected ones).  A
+queued operand records the block scopes around it with the symbols each had, and the drain checks it with them frozen
+(Scope.Frozen, FrozenSyms), so a local declared after it is not seen; the captures its check adds to the literals
+around it are judged again (requireFittingNewCaptures).  Right since then: fl1 and fl2 of the plan's section 2 (`var
+x = hs(func() int { var a [len(pick(func() int { var t bool = x; _ = t; return 0 }))]int; return len(a) }).f`
+compiled, the bool error lost).  Its review found a generic alias's target queued and checked outside its package (a
+false "undefined"), captures the drain added never size-checked (an error lost, then a compiler crash), and a
+redeclared local seen through the freeze (a second error); each was fixed, with a test, before landing.  Tests:
+TestLenHeadInFuncLitBody, TestLenHeadAliasTargetFromFuncLit, TestLenHeadLaterCapturesJudged,
+TestLenHeadFrozenBeforeRedeclaration, TestScopeFrozenLookup, conformance spec/09 189-190.
+
 ### An array length at a package's top level checked while its variable's type is found took that variable's placeholder for an error — DONE (binate `e0973fa62`, docs `89d8f4c`, 2026-11-27, temp-5; step 1's first stage of plan-placeholder-reads.md; landed on "wait 8 minutes again, then land; then continue") (part of the open entry "An array length checked while its variable's type is found takes that variable's placeholder for an error" in claude-todo.md, which keeps the rest)
 
 binate `e0973fa62`: while the batch collects or resolves a declaration at a package's top level, `checkerEnv.Len` types

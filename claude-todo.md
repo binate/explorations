@@ -277,7 +277,7 @@ shard each run; the others 36-51 min), so it is the lane's length plus runner va
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5; plan: explorations/plan-placeholder-reads.md, one project with the next two entries (user 2026-11-04: "go with your recs"); step 1's first stage landed 2026-11-27, binate `e0973fa62`; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
+### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5; plan: explorations/plan-placeholder-reads.md, one project with the next two entries (user 2026-11-04: "go with your recs"); step 1's stages for a package's top level and a function literal's body landed 2026-11-27, binate `e0973fa62` and `cc76b7a07`; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
 TestVarTypeCycleFuncLitBodyNotCycle pins (the length is pick's result's, and the literal is never compiled), but
@@ -337,12 +337,11 @@ the three questions from the second review of the plan's v2 (F1, F2, F10):
 
 **Progress (2026-11-27):** binate `e0973fa62` (docs `89d8f4c`) types a `len` operand that has a head by that head
 while the batch's declarations are resolved at a package's top level, and checks it in full once every declaration has
-its type; a head-less operand's placeholder read is that variable's type cycle (the plan's S1).  Every program above is
+its type; a head-less operand's placeholder read is that variable's type cycle (the plan's S1).  binate `cc76b7a07`
+does the same in a function literal's body in a package variable's initializer (fl1, fl2).  Every program above is
 now right.  Open: the same in an instance's build (`type G[T any] struct { a [len(pick(func() int { return len(V.a)
 }))]int; t T }` with `var V G[uint8]` is "cyclic type definition involving `G`", though a is a `[3]int`; gnd2, gdep,
-k5g and ginst2 in the plan) and in a function literal's body (`var x = hs(func() int { var a [len(pick(func() int { var
-t bool = x.k; _ = t; return 0 }))]int; return len(a) }).f` compiles, the bool error lost; fl2) -- the plan's step 1,
-stages (b) and (c).
+k5g and ginst2 in the plan) -- the plan's step 1, stage (b).
 
 ### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entry above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
