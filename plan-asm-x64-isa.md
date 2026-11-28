@@ -540,5 +540,16 @@ error), split by class into sub-packages as they grow, as `asm/x64/sse` already 
   but 89 (the prefetches, the 24 overlapping gathers, vcvtneps2bf16); a review's ~7,900 probes found no encoding
   error.
 
-Next: stage 5e, FP16 (maps 5 and 6: the half-precision arithmetic, conversions, FMA, complex multiply, vfpclasssh /
-vcmpsh with the rest).
+- Stage 5e (AVX512-FP16) — landed binate `29ce21946` (2026-11-27; user: "wait 4 minutes, then land"): 108
+  instructions, 332 lines in EVEX maps 5 and 6, in avx_table_evex_fp16.bn (arithmetic, FMA, the complex multiplies,
+  getexp / getmant, rcp / rsqrt, reduce / rndscale / scalef, vcmpph / sh, vfpclassph / sh, vcomish / vucomish) and
+  avx_table_evex_fp16cvt.bn (the conversions, vmovsh, vmovw); vcmp's predicate names take ph / sh.  A complex
+  multiply whose destination is a source is an error, as GNU as (the CPU faults; clang warns), applying the gathers'
+  overlap decision (user told at landing).  Against clang 10,605 lines agree but 204 (the immediates as rounding
+  modes; AVX10.2's `vmovw xmm, xmm`, left for 5f with its vmovw.s, whose direction a review doubts: llvm-objdump
+  decodes F3.MAP5 7E with memory as a store, but clang's vmovw.s puts the destination in reg).
+
+Next: stage 5f, AVX10.2 and BF16: the BF16 arithmetic (vaddbf16 ..), vcvtneps2bf16's EVEX form (the last name that
+takes {vex}), vcvtne2ps2bf16 / vdpbf16ps, AVX10.2's converts (bf8 / hf8, the saturating ibs / iubs / s forms),
+vminmax, vcomx / vucomx, vmovd / vmovw between XMM registers, vmpsadbw's EVEX form, the AVX-VNNI-INT8 / INT16 EVEX
+forms (vpdpbssd ..), vdpphps, vcvt2ps2phx, the MOVRS loads, and the y-suffixed converts.
