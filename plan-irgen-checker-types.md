@@ -264,7 +264,7 @@ IR-gen cannot map is an internal error, never `int`.
      matches the registering path would catch it at registration; (c) aliases stay keyed by `d.Name`
      (RegisterModuleTypeAlias keeps the first entry for a name), and methods, impls, generic stashes and
      interface parents (collectInterfaceParents by ref.Name) by written names -- 5c-2 / 5d / 5e.
-     5c-2 IN PROGRESS (work-6, 2026-11-25, stage 7 done), in these steps (from a survey of the seven passes):
+     5c-2 DONE (work-6, 2026-11-25 to 27), in these steps (from a survey of the seven passes):
      - 5c-2a DONE (binate c745aa89a, 2026-11-25; user: "wait 7 minutes, then land"): an impl's receiver key,
        an impl's listed interfaces and an interface's parents, and an interface alias's target come from their
        records only; no record, an abstract one or one of the wrong kind is an internal error.  The by-name
@@ -321,9 +321,13 @@ IR-gen cannot map is an internal error, never `int`.
          the checker's type recorded on the declaration (declaredTypeRecord, declaredStructFields,
          declaredUnderlying, ifaceParentKeys); a generic's instances still read the checker's per-instance
          copies.  Objects unchanged (codegen-ab: LLVM all three corpora, native multi + bnc); irgen 865.
-       - 5c-2e-2: lazy registration in the mapper of a struct / named type / interface it meets
-         unregistered, from the checker's type, its fill queued and drained when the outermost mapping
-         returns (so a ring of thousands of types does not recurse).
+       - 5c-2e-2 DONE (binate 5bbee6888, 2026-11-27; user: "wait 12 minutes, then land; then continue"):
+         the mapper registers a struct / named type / interface it meets unregistered from the checker's
+         type (gen_type_lazy.bn: registerMetStruct / registerMetNamed / ensureMetIface), its fill queued
+         and drained when the outermost mapping returns (drainLazyTypes), so a ring of 20,000 structs is
+         registered in a loop (TestDeepMetStructRing, skipped on the VM / bare-metal lanes); an instance's
+         checker name stays an internal error (requireDeclaredName).  The passes still register in
+         declaration order.  Objects unchanged (codegen-ab: LLVM all three corpora, native multi + bnc).
    - 5d: emitted names from the checker's identity: methodQualName (the receiver TypeExpr's record, not
      recvTypeName's text), the dtor / copy helpers, impl rows and typeinfo name what the record maps to.
      Byte-identical until a checker makes two types of one name (plan-repl-type-shadowing.md approach B).
@@ -729,8 +733,8 @@ IR-gen cannot map is an internal error, never `int`.
          constant-folding unit tests that built unchecked syntax now check their programs.  Still read by
          name, for 5c-2: ifaceRefKeyByName, instantiatedAliasTarget, implRecvKeyByName and the
          homedQualifier uses.
-   Then 5c-2 (stage 5's merged, lazy type registration) -- IN PROGRESS (work-6, 2026-11-25).
-8. **REPL type / interface shadowing** (plan-repl-type-shadowing.md).
+   Then 5c-2 (stage 5's merged, lazy type registration) -- DONE (2026-11-27; the steps under 5c-2 above).
+8. **REPL type / interface shadowing** (plan-repl-type-shadowing.md) -- IN PROGRESS (work-6, 2026-11-27).
 
 ## Stage 0 results (2026-10-15, work-6)
 
