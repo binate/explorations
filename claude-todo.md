@@ -1108,7 +1108,7 @@ the prompt is checked with none.  A prompt statement `var hb H[int16]`, with `ty
 flush inside the copy.  Fix: reproduce it in the REPL's tests first; then give a prompt's statements the state the
 batch carries for these waits (the starts and DeclReadWaited), with a REPL unit test.
 
-### A prompt import does not resolve a declaration parked on the name it binds — 🔴 OPEN (minor: valid REPL sessions rejected; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`, with a bni built from it plus the unlanded REPL change, which leaves this path alone)
+### A prompt import does not resolve a declaration parked on the name it binds — 🟡 IN PROGRESS (claimed 2026-11-27, work-7/session; user: "yes") (minor: valid REPL sessions rejected; found 2026-11-27, work-7, review of the REPL's prompt import scope; reproduced on main as of binate `16aa03afe`, with a bni built from it plus the REPL change since landed as `ead38816c`, which leaves this path alone)
 
 At the REPL a declaration naming a package not yet imported parks on the package's name, and the import that then
 binds the name does not resolve it:
@@ -1123,7 +1123,7 @@ binds the name does not resolve it:
 The pending list prints empty, so the import cleared the missing name without resolving the declaration; the root
 cause is not traced yet (a declaration that binds a parked one's missing name resolves it; the prompt import path,
 repl mid_session_import.bn / Checker.RegisterReplImport, apparently does not).  It reproduces with a loaded file that
-imports nothing.  Once the prompt no longer sees a loaded file's imports (the claimed REPL entry below), a session
+imports nothing.  Since the prompt no longer sees a loaded file's imports (binate `ead38816c`), a session
 that names a package before importing it at the prompt hits this more often.  Fix: resolve the parked declarations
 waiting on the names a prompt import binds, as a declaration's resolution does.  Test: an e2e/repl.sh session (the
 transcript above).
