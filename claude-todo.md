@@ -277,7 +277,7 @@ shard each run; the others 36-51 min), so it is the lane's length plus runner va
   pointeeEmbedsOpaque stops at an instance whose type arguments cannot bring an opaque type in, a later `*G[...]`
   would not judge it again — an opaque type held by value could be accepted.  Needs a repro attempt first.
 
-### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5; plan: explorations/plan-placeholder-reads.md, one project with the next two entries (user 2026-11-04: "go with your recs"), the plan reviewed again before implementing; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
+### An array length checked while its variable's type is found takes that variable's placeholder for an error: its errors are lost, and a variable read before its turn is a false cycle — 🟡 IN PROGRESS (claimed 2026-11-03, temp-5; plan: explorations/plan-placeholder-reads.md, one project with the next two entries (user 2026-11-04: "go with your recs"); step 1's first stage landed 2026-11-27, binate `e0973fa62`; back-burnered 2026-10-30: a fix reviewed unsound, archived on binate branch `archive/20261030-dim-read-recheck`; minor: a valid program rejected, and ill-typed code that is never compiled accepted; found 2026-10-28, work-5, review of the placeholder MAJOR's part 2; reproduced; the false cycle since binate `4fa186628`, the rest pre-existing)
 
 `var u = [len(pick(func() int { return len(u) }))]int{}` (`func pick(f @func() int) [3]int`) compiles, as
 TestVarTypeCycleFuncLitBodyNotCycle pins (the length is pick's result's, and the literal is never compiled), but
@@ -335,6 +335,15 @@ the three questions from the second review of the plan's v2 (F1, F2, F10):
   [len(V)]int` stays a cycle, reported as S's.
 - F10 (a): constants in a `.bni` get entry 3's fix too, so a `.bn` and a `.bni` agree on `const K = len(F(K))`.
 
+**Progress (2026-11-27):** binate `e0973fa62` (docs `89d8f4c`) types a `len` operand that has a head by that head
+while the batch's declarations are resolved at a package's top level, and checks it in full once every declaration has
+its type; a head-less operand's placeholder read is that variable's type cycle (the plan's S1).  Every program above is
+now right.  Open: the same in an instance's build (`type G[T any] struct { a [len(pick(func() int { return len(V.a)
+}))]int; t T }` with `var V G[uint8]` is "cyclic type definition involving `G`", though a is a `[3]int`; gnd2, gdep,
+k5g and ginst2 in the plan) and in a function literal's body (`var x = hs(func() int { var a [len(pick(func() int { var
+t bool = x.k; _ = t; return 0 }))]int; return len(a) }).f` compiles, the bool error lost; fl2) -- the plan's step 1,
+stages (b) and (c).
+
 ### An array length evaluated while a variable's type is found and left without a value by its placeholder is blamed as its type cycle, even where the variable's own length does not need it — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entry above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
 With `func f(x int) [3]int` (whose result type alone is a length's operand's type in `[len(f(K))]`) and `type S
@@ -352,6 +361,11 @@ again once V has its type, as a pending constant is (compare the back-burnered e
 a placeholder, whose design needs the same judgment); conformance regressions/type-reads-const-while-var-typed
 (xfailed until then) and a unit test per shape.
 
+Also (2026-11-27): `var V [len(f([3]int{}))]int` before `func f(y [len(V)]int) [3]int` is "variable type cycle
+involving `V`" (k5r): the by-name walk defines f's whole signature ahead of V's length, and its parameter reads V.  The
+other order is right since binate `e0973fa62`.  Fix: the plan's 3.3, a by-name call resolving f's result type alone
+(step 2).
+
 ### A constant read while it is being resolved, where its value is not needed, is a false constant definition cycle — 🟡 IN PROGRESS (claimed 2026-11-04, temp-5, with the entries above, per explorations/plan-placeholder-reads.md) (minor: valid programs rejected; found 2026-10-31, work-7, testing the fix for constants resolved without a value and by its review; reproduced on main at binate `e595ee5bb`; pre-existing)
 
 With `func f(x int) [3]int` and `type S struct { a [3]int; k int }`, each of these is valid but is "constant definition
@@ -365,22 +379,6 @@ first is resolved on demand by V's length, the others by finishTopLevelConsts, w
 Fix (to design): a read of a constant being resolved where its value is not needed could take it as a variable's
 placeholder is taken, the reading declaration resolved again once the constant is resolved; conformance
 regressions/const-read-as-arg-while-resolved (xfailed until then) and a unit test per shape.
-
-### A type read in its own array length where its value is not needed is checked with no underlying: an ill-typed literal there is accepted — 🟡 IN PROGRESS (claimed 2026-11-26, temp-5, with the placeholder-reads entries, per explorations/plan-placeholder-reads.md; user 2026-11-26: "(a)", into that project) (minor: ill-typed code that is never compiled accepted; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; reproduced on binate main `6ec2bc17e`; pre-existing)
-
-With `func f2(x T) [3]int`, `type T [len(f2(T{true}))]int` compiles (T is a `[3]int`), though `T{true}` gives an int
-element a bool: the literal is checked against T while T is collected, with no underlying, and never again.  A struct
-T's `T{q: true}` likewise, and plan-placeholder-reads.md's e1 with `T{true}` for `T{}`, declared in another order.  Fix:
-once T has its underlying, check again what read T where T's value was not needed, as that plan's section 3.6 does for
-a constant being resolved (decided 2026-11-26, user: "(a)": into that plan).  Test: an error test of t1 (xfailed until
-the fix).
-
-### A function read in the array length of a variable its signature needs is "undefined" — 🟡 IN PROGRESS (claimed 2026-11-26, temp-5, with the placeholder-reads entries, per explorations/plan-placeholder-reads.md; user 2026-11-26: "(a)", into that project) (minor: a valid program rejected, with a wrong message; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; reproduced on binate main `6ec2bc17e`; pre-existing)
-
-`func f(y [len(V)]int) [3]int` with `var V [len(f([3]int{}))]int` is "undefined: f".  V's length needs only f's result
-type, so V is a `[3]int` and f's parameter a `[3]int` (spec decl.var.type-acyclic).  f's signature is being defined
-when V's length reads f.  With V declared first it is "variable type cycle involving `V`" (the entry above on a length
-"blamed as its type cycle").  Fix: as for the type in the entry above.  Test: a run test of k5 (xfailed until the fix).
 
 ### `len` of a variable whose type is an instance not built yet is not a constant — 🟡 IN PROGRESS (claimed 2026-11-26, temp-5, with the placeholder-reads entries, per explorations/plan-placeholder-reads.md) (minor: a valid program rejected; found 2026-11-26, temp-5, review of that plan's v3; reproduced on binate main `6ec2bc17e`; pre-existing)
 

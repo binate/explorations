@@ -1,3 +1,41 @@
+### An array length at a package's top level checked while its variable's type is found took that variable's placeholder for an error — DONE (binate `e0973fa62`, docs `89d8f4c`, 2026-11-27, temp-5; step 1's first stage of plan-placeholder-reads.md; landed on "wait 8 minutes again, then land; then continue") (part of the open entry "An array length checked while its variable's type is found takes that variable's placeholder for an error" in claude-todo.md, which keeps the rest)
+
+binate `e0973fa62`: while the batch collects or resolves a declaration at a package's top level, `checkerEnv.Len` types
+a `len` operand that has a head (`initHeadType`) by it, and queues it to be checked in full once every declaration has
+its type (check_len_head.bn, drained after pass 2's checkDecls at each site that runs collection and pass 2); a
+head-less operand is checked at once, and a placeholder it reads outside the array lengths in it is that variable's type
+cycle (the plan's S1; docs `89d8f4c` rewords decl.var.type-acyclic to say so).  A result type resolved alone is not
+resolved again inside itself, per instance; a bare const-group member's copy checks its operands at once; bit_cast gives
+no size verdict for an operand of the error type.  Right since then: p1, p2, p3, p3', p4, p4', p5, g1, h1, f1, b1, d1,
+e5, x3, t1, k5, k5d and ngdep of the plan's section 2.  Its review found a false "undefined" through a generic's result
+type keyed by declaration rather than instance, a false S1 cycle for reads inside a nested length, a spurious cycle for
+a head that is no array, and a bare member's errors moved to the explicit member's line; each was fixed, with a test,
+before landing.  Tests: check_len_head_test.bn, TestBitCastErrorOperandNoSizeVerdict, conformance spec/09 183-188.
+
+### A type read in its own array length where its value is not needed was checked with no underlying: an ill-typed literal there was accepted — DONE (binate `e0973fa62`, 2026-11-27, temp-5; step 1's first stage of plan-placeholder-reads.md; landed on "wait 8 minutes again, then land; then continue") (minor: ill-typed code that is never compiled accepted; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; pre-existing)
+
+With `func f2(x T) [3]int`, `type T [len(f2(T{true}))]int` compiles (T is a `[3]int`), though `T{true}` gives an int
+element a bool: the literal is checked against T while T is collected, with no underlying, and never again.  A struct
+T's `T{q: true}` likewise, and plan-placeholder-reads.md's e1 with `T{true}` for `T{}`, declared in another order.  Fix:
+once T has its underlying, check again what read T where T's value was not needed, as that plan's section 3.6 does for
+a constant being resolved (decided 2026-11-26, user: "(a)": into that plan).  Test: an error test of t1 (xfailed until
+the fix).
+Resolution: binate `e0973fa62` types `len(f2(T{true}))` by its head, f2's result type, and checks the operand in full
+once every declaration has its type: "cannot assign untyped bool to int" (conformance spec/09 186,
+TestLenHeadLiteralOfTypeBeingCollected), and so for a struct T's `T{q: true}` and for e1 with `T{true}` declared in
+the other order (probed on that commit).
+
+### A function read in the array length of a variable its signature needs was "undefined" — DONE (binate `e0973fa62`, 2026-11-27, temp-5; step 1's first stage of plan-placeholder-reads.md; landed on "wait 8 minutes again, then land; then continue") (minor: a valid program rejected, with a wrong message; found 2026-11-26, temp-5, review of plan-placeholder-reads.md; pre-existing)
+
+`func f(y [len(V)]int) [3]int` with `var V [len(f([3]int{}))]int` is "undefined: f".  V's length needs only f's result
+type, so V is a `[3]int` and f's parameter a `[3]int` (spec decl.var.type-acyclic).  f's signature is being defined
+when V's length reads f.  With V declared first it is "variable type cycle involving `V`" (the entry above on a length
+"blamed as its type cycle").  Fix: as for the type in the entry above.  Test: a run test of k5 (xfailed until the fix).
+Resolution: binate `e0973fa62` types `len(f([3]int{}))` by its head, f's result type resolved alone while f's
+signature is being defined (definingFuncResult), so V is a `[3]int` and so is f's parameter (conformance spec/09 187,
+TestLenHeadResultTypeOperand).  The other order stays "variable type cycle involving `V`", tracked with the entry on a
+length "blamed as its type cycle" in claude-todo.md.
+
 ### CI red on main: pkg/binate/check's tests time out the VM lanes and the bare-metal lane — DONE (confirmed on CI 2026-11-27, work-3)
 
 Unit runs at binate d8dcb90c6, 5d0d35bc0 and 5eac8e920 (2026-11-26/27), after `dfd90afce` put check's
